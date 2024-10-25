@@ -1,0 +1,10 @@
+.vscode/
+bin/
+build/
+builddir/
+output/
+env/
+
+.cache
+
+cpp_src/
