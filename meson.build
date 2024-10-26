@@ -5,6 +5,8 @@ add_project_arguments(['-Wall','-Wextra'], language: 'c' )
 sources = [
   'src/lexer.c',
   'src/token.c',
+  'src/node.c',
+  'src/parser.c',
   'src/main.c'
 ]
 

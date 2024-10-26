@@ -14,6 +14,7 @@ struct parser {
   int64_t current;
 
   bool error;
+  bool checked_error;
 };
 
 struct ast_node *parse(struct token **tokens, int64_t tokens_size);

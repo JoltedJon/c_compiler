@@ -597,6 +597,7 @@ static void macro_include(struct lexer *l) {
     struct token** tokens = lex_file(filename, &token_size);
 
     for(int i = 0; i < token_size; i++) {
+      if(tokens[i]->type == EOFF) continue;
       append_token(l, tokens[i]);
     }
 

@@ -3,13 +3,17 @@
 
 #include "lexer.h"
 #include "token.h"
+#include "parser.h"
+#include "nodes.h"
 
-void lex(char* filename) {
+void compile(char* filename) {
   int num_tokens;
   struct token** token_list = lex_file(filename, &num_tokens);
 
+  parse(token_list, num_tokens);
+
   for(int i = 0; i < num_tokens; ++i) {
-    print_token(token_list[i], stdout);
+    // print_token(token_list[i], stdout);
     destroy_token(token_list[i]);
   }
   free(token_list);
@@ -25,7 +29,7 @@ int main(int argc, char** argv) {
   }
 
   for(int i = 1; i < argc; i++) {
-    lex(argv[i]);
+    compile(argv[i]);
   }
 
 
