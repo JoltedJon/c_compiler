@@ -67,19 +67,19 @@ void graph_gen(ast_node *node, const void *parent_ID, const char *connection) {
     char name[512];
     if(node->type == IDENTIFIER_EXPRESSION) {
       struct identifier_expression_node *temp = (struct identifier_expression_node *)node;
-      snprintf(name, sizeof(name), "Identifier:\n%s", temp->identifier);
+      snprintf(name, sizeof(name), "Identifier:\\n%s", temp->identifier);
     }
     else if(node->type == STRING_LITERAL_EXPRESSION) {
       struct literal_expression_node *temp = (struct literal_expression_node *)node;
-      snprintf(name, sizeof(name), "String literal:\n\"%s\"", temp->lit.str);
+      snprintf(name, sizeof(name), "String literal:\\n\\\"%s\\\"", temp->lit.str);
     }
     else if(node->type == INTEGER_LITERAL_EXPRESSION) {
       struct literal_expression_node *temp = (struct literal_expression_node *)node;
-      snprintf(name, sizeof(name), "Integer literal:\n%lu", temp->lit.number);
+      snprintf(name, sizeof(name), "Integer literal:\\n%lu", temp->lit.number);
     }
     else if(node->type == FLOAT_LITERAL_EXPRESSION) {
       struct literal_expression_node *temp = (struct literal_expression_node *)node;
-      snprintf(name, sizeof(name), "Float literal:\n%lf", temp->lit.floating_point);
+      snprintf(name, sizeof(name), "Float literal:\\n%lf", temp->lit.floating_point);
     }
     else {
       snprintf(name, sizeof(name), "%s", node_strs[node->type]);
@@ -181,7 +181,7 @@ void graph_gen(ast_node *node, const void *parent_ID, const char *connection) {
       break;
   }
 
-  if(parent_ID == NULL) printf("}\n");
+  if(parent_ID == NULL) printf("}\n\n");
 }
 
 void print_node(ast_node *node) {

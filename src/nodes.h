@@ -66,8 +66,15 @@ enum node_type {
   FLOAT_LITERAL_EXPRESSION,
 
   // Misc
-  ARGUMENT_LIST
+  ARGUMENT_LIST,
 
+  // Declarations
+  DECLARATION,
+  DECL_SPECIFICATION,
+
+  // Statements
+  EXPR_STATEMENT,
+  LABEL_STATEMENT
 };
   
 // Base data structure, all types downcast to this and will be upcast based on type 
@@ -76,6 +83,8 @@ struct ast_node {
   int64_t line;
   int64_t column;
 };
+
+/* EXPRESSION NODES */
 
 struct binary_expression_node {
   enum node_type type;
@@ -137,6 +146,72 @@ struct argument_list {
   struct ast_node** args;
   int num_args;
 };
+
+
+/* DECLARATION NODES */
+
+struct decl_node {
+  enum node_type type;
+  int64_t line;
+  int64_t column;
+
+  struct ast_node *specifiers;
+  struct ast_node *init_list;
+};
+
+enum decl_spec_type {
+  STORAGE_CLASS_SPEC,
+  TYPE_SPEC,
+  TYPE_QUALIFIER_SPEC,
+  FUNCTION_SPEC
+};
+
+struct decl_spec_node {
+  enum node_type type;
+  int64_t line;
+  int64_t column;
+
+  enum decl_spec_type spec_type;
+  char *spec;
+  struct ast_node *more_specs;
+};
+
+struct decl_init_list {
+  enum node_type type;
+  int64_t line;
+  int64_t column;
+
+  
+};
+
+/* STATEMENT NODES */
+
+struct stmt_expression_node {
+  enum node_type type;
+  int64_t line;
+  int64_t column;
+
+  struct ast_node *expr;
+};
+
+struct stmt_label_node {
+  enum node_type type;
+  int64_t line;
+  int64_t column;
+
+  char *identifier;
+};
+
+struct stmt_case_node {
+  enum node_type type;
+  int64_t line;
+  int64_t column;
+
+  struct ast_node *expr;
+  struct ast_node **stmts;
+  int64_t num_stmts;
+};
+
 
 void print_node(struct ast_node *node);
 void destroy_node(struct ast_node *node);

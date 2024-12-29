@@ -81,7 +81,7 @@ static inline token_s *consume(parser *p, enum token_type type, const char* msg)
   return NULL;
 }
 
-static bool match(parser *p, enum token_type *types) {
+static bool __match(parser *p, enum token_type *types) {
   enum token_type cur;
   while((cur = *types) != EOFF) {
     if(check(p, cur)) {
@@ -93,6 +93,8 @@ static bool match(parser *p, enum token_type *types) {
 
   return false;
 } 
+
+#define match(p, ...) __match(p, (enum token_type[]){__VA_ARGS__, EOFF})
 
 // Puts the parser in a good position to be able to continue parsing after an error occurred
 static void synchronize(parser *p) {
@@ -148,13 +150,17 @@ static void synchronize(parser *p) {
 
 /* BEGIN FACTORY FUNCTIONS */
 
-
-static inline ast_node *make_binary_expression(token_s *tok, enum node_type type, ast_node *left, ast_node *right) {
-  struct binary_expression_node *node = malloc(sizeof(struct binary_expression_node));
-
-  node->type = type;
+static void *make_node(int size, token_s *tok, enum node_type type) {
+  ast_node *node = malloc(size);
   node->line = tok->line;
   node->column = tok->column;
+  node->type = type;
+  return node;
+}
+
+static inline ast_node *make_binary_expression(token_s *tok, enum node_type type, ast_node *left, ast_node *right) {
+  struct binary_expression_node *node = make_node(sizeof(struct binary_expression_node), tok, type);
+
   node->left = left;
   node->right = right;
 
@@ -230,7 +236,7 @@ static ast_node *binary_expression_factory(token_s *tok, ast_node *left, ast_nod
 }
 
 static inline ast_node *make_unary_expression(token_s *tok, enum node_type type, ast_node *operand) {
-  struct unary_expression_node *node = malloc(sizeof(struct unary_expression_node));
+  struct unary_expression_node *node = make_node(sizeof(struct unary_expression_node), tok, type);
 
   node->type = type;
   node->line = tok->line;
@@ -290,7 +296,7 @@ static ast_node *arguments(parser *p);
 
 static ast_node *expression(parser *p) {
   ast_node *expr = assign(p);
-  while(match(p, (enum token_type[]){COMMA, EOFF})) {
+  while(match(p, COMMA)) {
     token_s *op = previous(p);
     expr = binary_expression_factory(op, expr, assign(p));
   }
@@ -299,9 +305,9 @@ static ast_node *expression(parser *p) {
 
 static ast_node *assign(parser *p) {
   ast_node *expr = ternary(p);
-  while(match(p, (enum token_type[]){EQUAL, SHIFT_RIGHT_EQUAL, SHIFT_LEFT_EQUAL, PLUS_EQUAL,
+  while(match(p, EQUAL, SHIFT_RIGHT_EQUAL, SHIFT_LEFT_EQUAL, PLUS_EQUAL,
                 MINUS_EQUAL, STAR_EQUAL, SLASH_EQUAL, PERCENT_EQUAL,
-                AMPERSAND_EQUAL, PIPE_EQUAL, CARET_EQUAL, EOFF})) {
+                AMPERSAND_EQUAL, PIPE_EQUAL, CARET_EQUAL)) {
     token_s *op = previous(p);
     expr = binary_expression_factory(op, expr, assign(p));
   }
@@ -311,16 +317,13 @@ static ast_node *assign(parser *p) {
 static ast_node *ternary(parser *p) {
   // expr QUESTION expr1 COLON expr2
   ast_node *expr = logical_or(p);
-  while(match(p, (enum token_type[]){QUESTION, EOFF})) {
+  while(match(p, QUESTION)) {
     token_s *op = previous(p);
     ast_node *expr1 = expression(p);
 
     consume(p, COLON, "Invalid ternary expression");
 
-    struct ternary_expression_node *tern = malloc(sizeof(struct ternary_expression_node));
-    tern->type = TERNARY_EXPRESSION;
-    tern->line = op->line;
-    tern->column = op->column;
+    struct ternary_expression_node *tern = make_node(sizeof(struct ternary_expression_node), op, TERNARY_EXPRESSION);
     tern->condition = expr;
     tern->true_node = expr1;
     tern->false_node = ternary(p);
@@ -331,7 +334,7 @@ static ast_node *ternary(parser *p) {
 
 static ast_node *logical_or(parser *p) {
   ast_node *expr = logical_and(p);
-  while(match(p, (enum token_type[]){PIPE_PIPE, EOFF})) {
+  while(match(p, PIPE_PIPE)) {
     token_s *op = previous(p);
     expr = binary_expression_factory(op, expr, logical_and(p));
   }
@@ -340,7 +343,7 @@ static ast_node *logical_or(parser *p) {
 
 static ast_node *logical_and(parser *p) {
   ast_node *expr = bitwise_or(p);
-  while(match(p, (enum token_type[]){AMPERSAND_AMPERSAND, EOFF})) {
+  while(match(p, AMPERSAND_AMPERSAND)) {
     token_s *op = previous(p);
     expr = binary_expression_factory(op, expr, bitwise_or(p));
   }
@@ -349,7 +352,7 @@ static ast_node *logical_and(parser *p) {
 
 static ast_node *bitwise_or(parser *p) {
   ast_node *expr = bitwise_xor(p);
-  while(match(p, (enum token_type[]){PIPE, EOFF})) {
+  while(match(p, PIPE)) {
     token_s *op = previous(p);
     expr = binary_expression_factory(op, expr, bitwise_xor(p));
   }
@@ -358,7 +361,7 @@ static ast_node *bitwise_or(parser *p) {
 
 static ast_node *bitwise_xor(parser *p) {
   ast_node *expr = bitwise_and(p);
-  while(match(p, (enum token_type[]){CARET, EOFF})) {
+  while(match(p, CARET)) {
     token_s *op = previous(p);
     expr = binary_expression_factory(op, expr, bitwise_and(p));
   }
@@ -367,7 +370,7 @@ static ast_node *bitwise_xor(parser *p) {
 
 static ast_node *bitwise_and(parser *p) {
   ast_node *expr = equality(p);
-  while(match(p, (enum token_type[]){AMPERSAND, EOFF})) {
+  while(match(p, AMPERSAND)) {
     token_s *op = previous(p);
     expr = binary_expression_factory(op, expr, equality(p));
   }
@@ -376,7 +379,7 @@ static ast_node *bitwise_and(parser *p) {
 
 static ast_node *equality(parser *p) {
   ast_node *expr = comparision(p);
-  while(match(p, (enum token_type[]){EQUAL_EQUAL, BANG_EQUAL, EOFF})) {
+  while(match(p, EQUAL_EQUAL, BANG_EQUAL)) {
     token_s *op = previous(p);
     expr = binary_expression_factory(op, expr, comparision(p));
   }
@@ -385,7 +388,7 @@ static ast_node *equality(parser *p) {
 
 static ast_node *comparision(parser *p) {
   ast_node *expr = shift(p);
-  while(match(p, (enum token_type[]){GREATER, GREATER_EQUAL, LESS, LESS_EQUAL, EOFF})) {
+  while(match(p, GREATER, GREATER_EQUAL, LESS, LESS_EQUAL)) {
     token_s *op = previous(p);
     expr = binary_expression_factory(op, expr, shift(p));
   }
@@ -394,7 +397,7 @@ static ast_node *comparision(parser *p) {
 
 static ast_node *shift(parser *p) {
   ast_node *expr = term(p);
-  while(match(p, (enum token_type[]){SHIFT_LEFT, SHIFT_RIGHT, EOFF})) {
+  while(match(p, SHIFT_LEFT, SHIFT_RIGHT)) {
     token_s *op = previous(p);
     expr = binary_expression_factory(op, expr, term(p));
   }
@@ -403,7 +406,7 @@ static ast_node *shift(parser *p) {
 
 static ast_node *term(parser *p) {
   ast_node *expr = factor(p);
-  while(match(p, (enum token_type[]){PLUS, MINUS, EOFF})) {
+  while(match(p, PLUS, MINUS)) {
     token_s *op = previous(p);
     expr = binary_expression_factory(op, expr, factor(p));
   }
@@ -412,7 +415,7 @@ static ast_node *term(parser *p) {
 
 static ast_node *factor(parser *p) {
   ast_node *expr = prefix(p);
-  while(match(p, (enum token_type[]){STAR, SLASH, PERCENT, EOFF})) {
+  while(match(p, STAR, SLASH, PERCENT)) {
     token_s *op = previous(p);
     expr = binary_expression_factory(op, expr, prefix(p));
   }
@@ -421,7 +424,7 @@ static ast_node *factor(parser *p) {
 
 static ast_node *prefix(parser *p) {
   // TODO casts have the same presedence as these so it should be evaluated at this time
-  if(match(p, (enum token_type[]){PLUS_PLUS, MINUS_MINUS, PLUS, MINUS, BANG, TILDE, STAR, AMPERSAND, SIZEOF, EOFF})) {
+  if(match(p, PLUS_PLUS, MINUS_MINUS, PLUS, MINUS, BANG, TILDE, STAR, AMPERSAND, SIZEOF)) {
     token_s *op = previous(p);
     return unary_expression_factory(op, prefix(p));
   }
@@ -433,8 +436,8 @@ static ast_node *postfix(parser *p) {
   // Currently primary() will see ( and parse that into an expression
 
   ast_node* expr = primary(p);
-  while(match(p, (enum token_type[]){LEFT_PAREN, RIGHT_PAREN, LEFT_BRACKET, RIGHT_BRACKET,
-                DOT, PLUS_PLUS, MINUS_MINUS, ARROW, EOFF})) {
+  while(match(p, LEFT_PAREN, LEFT_BRACKET,
+                DOT, PLUS_PLUS, MINUS_MINUS, ARROW)) {
     token_s *op = previous(p);
 
     switch(op->type) {
@@ -457,7 +460,8 @@ static ast_node *postfix(parser *p) {
       case DOT:{
         token_s *ident = consume(p, IDENTIFIER, "Expected Identifier");
         enum node_type type = op->type == DOT ? DOT_ACCESS_EXPRESSION : ARROW_ACCESS_EXPRESSION;
-        struct struct_access_node *temp_expr = (struct struct_access_node *)make_unary_expression(op, type, expr);
+        struct struct_access_node *temp_expr = make_node(sizeof(struct struct_access_node), op, type);
+        temp_expr->storage = expr;
         temp_expr->identifier = ident->lexeme;
         expr = (ast_node *)temp_expr;
         break;
@@ -478,16 +482,13 @@ static ast_node *postfix(parser *p) {
 
 static ast_node *arguments(parser *p) {
   token_s *prev = previous(p);
-  struct argument_list* args = malloc(sizeof(struct argument_list));
-  args->type = ARGUMENT_LIST;
-  args->line = prev->line;
-  args->column = prev->column;
+  struct argument_list* args = make_node(sizeof(struct argument_list), prev, ARGUMENT_LIST);
 
   args->args = malloc(sizeof(ast_node**));
   args->num_args = 1;
 
   args->args[0] = assign(p);
-  while(match(p, (enum token_type[]){COMMA, EOFF})) {
+  while(match(p, COMMA)) {
     args->num_args++;
     args->args = realloc(args->args, args->num_args * sizeof(ast_node**));
     if(!args->args) {
@@ -503,8 +504,8 @@ static ast_node *arguments(parser *p) {
 static ast_node *primary(parser *p) {
   token_s *cur = peek(p);
 
-  if(match(p, (enum token_type[]){NUMBER_LITERAL, FLOAT_LITERAL, STRING_LITERAL, EOFF})) {
-    struct literal_expression_node *node = malloc(sizeof(struct literal_expression_node));
+  if(match(p, NUMBER_LITERAL, FLOAT_LITERAL, STRING_LITERAL)) {
+    struct literal_expression_node *node = make_node(sizeof(struct literal_expression_node), cur, 0);
     switch(cur->type) {
       case NUMBER_LITERAL:
         node->type = INTEGER_LITERAL_EXPRESSION;
@@ -518,38 +519,141 @@ static ast_node *primary(parser *p) {
       default:
         break;
     }
-    node->line = cur->line;
-    node->column = cur->column;
     node->lit = cur->literal;
 
     return (ast_node*)node;
   }
-  if(match(p, (enum token_type[]){IDENTIFIER, EOFF})) {
-    struct identifier_expression_node *node = malloc(sizeof(struct identifier_expression_node));
-    node->type = IDENTIFIER_EXPRESSION;
-    node->line = cur->line;
-    node->column = cur->column;
+  if(match(p, IDENTIFIER)) {
+    struct identifier_expression_node *node = make_node(sizeof(struct identifier_expression_node), cur, IDENTIFIER_EXPRESSION);
     node->identifier = cur->lexeme;
 
     return (ast_node*)node;
   }
-  if(match(p, (enum token_type[]){LEFT_PAREN, EOFF})) {
+  if(match(p, LEFT_PAREN)) {
     ast_node *expr = expression(p);
     consume(p, RIGHT_PAREN, "Expected ')'");
     return expr;
   }
 
-  parser_error(p, "Expected Expression.");
-  
   return NULL;
-  
 }
 
 
 /* END EXPRESSION PARSING FUNCTIONS */
 
+/* BEGIN DECLARATION PARSING FUNCTIONS */
 
-struct ast_node *parse(token_s **tokens, int64_t tokens_size) {
+static ast_node *declaration_specifier(parser *p);
+static ast_node *declaration_init_list(parser *p);
+static ast_node *declaration_init_declarator(parser *p);
+static ast_node *declaration_declarator(parser *p);
+
+
+static ast_node *declaration(parser *p) {
+  ast_node *spec = declaration_specifier(p);
+  struct decl_node *node = make_node(sizeof(struct decl_node), previous(p), DECLARATION);
+  node->specifiers = spec;
+  node->init_list = declaration_init_list(p);
+
+  consume(p, SEMICOLON, "Missing ';'");
+
+  return (ast_node *)node;
+}
+
+static ast_node *declaration_specifier(parser *p) {
+  // TODO
+
+  /*
+  while(storage_class_spec || type_spec || type_qualifier || function_specifier) {
+    append specifier
+    TODO data structure for this
+  }
+
+  storage_class_spec:
+    typedef, extern, static, auto, register
+
+  type-specifier:
+    void, char, short, int, long, float, double, signed, unsigned,
+    struct_or_union spec, enum spec, typedef_name
+
+  function specifiers:
+    inline
+  */
+
+  return NULL;
+}
+
+static ast_node *declaration_init_list(parser *p) {
+  ast_node *node = declaration_init_declarator(p);
+  while(match(p, COMMA)) {
+    ast_node *init_decl = declaration_init_declarator(p);
+
+    // TODO
+  }
+
+  return node;
+}
+
+static ast_node *declaration_init_declarator(parser *p) {
+  ast_node *decl = declaration_declarator(p);
+  if(match(p , EQUAL)) {
+    ast_node *initializer = NULL; // TODO
+  }
+
+  return decl;
+}
+
+static ast_node *declaration_declarator(parser *p) {
+  // TODO page 126 of open-std spec for c99
+  // https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1256.pdf
+  return NULL;
+}
+
+/* END DECLARATION PARSING FUNCTIONS */
+
+/* BEGIN STATEMENT PARSING FUNCTIONS*/
+
+static ast_node *labeled_statement(parser *p);
+static ast_node *compound_statement(parser *p);
+
+static ast_node *statement(parser *p) {
+  if(match(p, SEMICOLON)) return NULL;
+
+  // labeled statement
+  if(match(p, IDENTIFIER, CASE, DEFAULT)) {
+    return labeled_statement(p);
+  }
+  // Compound statement
+  if(match(p, LEFT_BRACE)) {
+    return compound_statement(p);
+  }
+}
+
+static ast_node *labeled_statement(parser *p) {
+  token_s *prev = previous(p);
+  switch(prev->type) {
+    case IDENTIFIER: 
+      if(match(p, COLON)) {
+        struct stmt_label_node *node = make_node(sizeof(struct stmt_label_node), prev, LABEL_STATEMENT);
+        node->identifier = prev->lexeme;
+        return (ast_node*)node;
+      } else {
+        // Expression Statement
+        unget(p);
+        struct stmt_expression_node *node = make_node(sizeof(struct stmt_expression_node), prev, EXPR_STATEMENT);
+        node->expr = expression(p);
+        consume(p, SEMICOLON, "Expected ';' in Statement");
+        return (ast_node*)node;
+      }
+    case CASE:
+      // TODO constant expression
+  }
+}
+
+
+/* END STATEMENT PARSING FUNCTIONS*/
+
+ast_node *parse(token_s **tokens, int64_t tokens_size) {
   parser p = {
     .tokens = tokens,
     .tokens_size = tokens_size,
