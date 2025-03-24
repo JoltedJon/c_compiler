@@ -15,12 +15,13 @@ void Parser::graph_gen(std::ostream &out, const Node *node) const {
 }
 
 void Parser::Node::graph_gen(const void *parent_id, const void *id, const std::string &name,
-                             const std::string &connection, std::ostream &out) const {
+                             const std::string &connection, const std::string &color, std::ostream &out) const {
   if (parent_id == nullptr) {
-    out << "digraph {\n  N" << id << "[label=\"" << name << "\"]\n";
+    out << "digraph {\n N" << id << "[label=\"" << name << "\";style=filled;color=" << color << "]\n";
   }
   else {
-    out << " N" << parent_id << " -> {N" << id << " [label=\"" << name << "\"]} [label=\"" << connection << "\"]\n";
+    out << " N" << parent_id << " -> {N" << id << " [label=\"" << name << "\";style=filled;color=" << color
+        << "]} [label=\"" << connection << "\"]\n";
   }
 }
 
@@ -103,11 +104,6 @@ void Parser::FunctionType::graph_gen(const void *p_parent_id, const std::string 
   DataType::graph_gen(p_parent_id, p_connection, "", out);
 
   return_type->graph_gen(this, "return type", "", out);
-
-  // for (size_t i = 0; i < param_types.size(); ++i) {
-  //   std::string str = "param " + std::to_string(i);
-  //   param_types[i]->graph_gen(this, str, "", out);
-  // }
 }
 
 void Parser::PointerType::graph_gen(const void *p_parent_id, const std::string &p_connection, const std::string &p_name,
@@ -120,6 +116,34 @@ void Parser::ArrayType::graph_gen(const void *p_parent_id, const std::string &p_
                                   std::ostream &out) const {
   DataType::graph_gen(p_parent_id, p_connection, "", out);
   m_base_type->graph_gen(this, "of", "", out);
+}
+
+std::string Parser::DataType::to_string() const {
+  switch (m_kind) {
+    case TypeKind::TYPE_UNRESOLVED:
+      return "unresolved";
+    case TypeKind::TYPE_INCOMPLETE:
+      return "incomplete";
+    case TypeKind::TYPE_VOID:
+      return "void";
+    case TypeKind::TYPE_INT:
+      return "int";
+    case TypeKind::TYPE_FLOAT:
+      return "float";
+    case TypeKind::TYPE_STRUCT:
+      return "struct";
+    case TypeKind::TYPE_ENUM:
+      return "enum";
+    case TypeKind::TYPE_UNION:
+      return "union";
+    case TypeKind::TYPE_FUNCTION:
+      return "function";
+    case TypeKind::TYPE_POINTER:
+      return "pointer";
+    case TypeKind::TYPE_ARRAY:
+      return "array";
+  }
+  return "";
 }
 
 std::string Parser::UnaryOpNode::to_string() const {
@@ -236,17 +260,9 @@ std::string Parser::ConstantNode::to_string() const {
   }
   return ss.str();
 }
-std::string Parser::LabelStmt::to_string() const {
-  switch (label_type) {
-    case LabelType::GOTO:
-      return "goto label";
-    case LabelType::CASE:
-      return "case";
-    case LabelType::DEFAULT:
-      return "default";
-  }
-  return "";
-}
+std::string Parser::LabelStmt::to_string() const { return "label"; }
+std::string Parser::CaseStmt::to_string() const { return "case"; }
+std::string Parser::DefaultStmt::to_string() const { return "default"; }
 std::string Parser::CompoundStmt::to_string() const { return "Compound Statement"; }
 std::string Parser::ExpressionStmt::to_string() const { return "Expression Statement"; }
 std::string Parser::IfStmt::to_string() const { return "If"; }
@@ -281,14 +297,14 @@ std::string Parser::TranslationUnit::to_string() const { return "Translation Uni
 void Parser::ExpressionNode::graph_gen_type(std::ostream &out) const { d_type->graph_gen(this, "type", "", out); }
 
 void Parser::UnaryOpNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string(), connection, out);
+  Node::graph_gen(parent_id, this, to_string(), connection, "lightskyblue", out);
   ExpressionNode::graph_gen_type(out);
 
   operand->graph_gen(this, "expr", out);
 }
 
 void Parser::BinaryOpNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string(), connection, out);
+  Node::graph_gen(parent_id, this, to_string(), connection, "lightskyblue", out);
   ExpressionNode::graph_gen_type(out);
 
   left_operand->graph_gen(this, "left", out);
@@ -296,7 +312,7 @@ void Parser::BinaryOpNode::graph_gen(const void *parent_id, const std::string &c
 }
 
 void Parser::TernaryOpNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string(), connection, out);
+  Node::graph_gen(parent_id, this, to_string(), connection, "lightskyblue", out);
   ExpressionNode::graph_gen_type(out);
 
   condition->graph_gen(this, "condition", out);
@@ -305,7 +321,7 @@ void Parser::TernaryOpNode::graph_gen(const void *parent_id, const std::string &
 }
 
 void Parser::CallNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string() + ":\\n" + name, connection, out);
+  Node::graph_gen(parent_id, this, to_string() + ":\\n" + name, connection, "lightskyblue", out);
   ExpressionNode::graph_gen_type(out);
 
   callee->graph_gen(this, "name", out);
@@ -315,25 +331,36 @@ void Parser::CallNode::graph_gen(const void *parent_id, const std::string &conne
 }
 
 void Parser::IdentifierNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string(), connection, out);
+  Node::graph_gen(parent_id, this, to_string(), connection, "khaki3", out);
   ExpressionNode::graph_gen_type(out);
 }
 void Parser::ConstantNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string(), connection, out);
+  Node::graph_gen(parent_id, this, to_string(), connection, "lawngreen", out);
   ExpressionNode::graph_gen_type(out);
 }
 
 void Parser::LabelStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string(), connection, out);
+  Node::graph_gen(parent_id, this, to_string() + ":\\n" + label, connection, "seagreen2", out);
+
+  stmt->graph_gen(this, "statement", out);
+}
+
+void Parser::CaseStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+  Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
 
   if (expr != nullptr) {
-    expr->graph_gen(this, "location", out);
+    expr->graph_gen(this, "Expr", out);
   }
   stmt->graph_gen(this, "statement", out);
 }
 
+void Parser::DefaultStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+  Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
+  stmt->graph_gen(this, "statement", out);
+}
+
 void Parser::CompoundStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string(), connection, out);
+  Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
 
   for (size_t i = 0; i < stmts.size(); ++i) {
     stmts[i]->graph_gen(this, std::to_string(i), out);
@@ -341,14 +368,14 @@ void Parser::CompoundStmt::graph_gen(const void *parent_id, const std::string &c
 }
 
 void Parser::ExpressionStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string(), connection, out);
+  Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
   if (expr != nullptr) {
     expr->graph_gen(this, "expression", out);
   }
 }
 
 void Parser::IfStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string(), connection, out);
+  Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
   condition->graph_gen(this, "condition", out);
   true_stmt->graph_gen(this, "then", out);
   if (false_stmt != nullptr) {
@@ -357,13 +384,13 @@ void Parser::IfStmt::graph_gen(const void *parent_id, const std::string &connect
 }
 
 void Parser::SwitchStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string(), connection, out);
+  Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
   expr->graph_gen(this, "Expression", out);
   stmt->graph_gen(this, "statement", out);
 }
 
 void Parser::WhileStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string(), connection, out);
+  Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
 
   if (while_type == WhileType::WHILE) {
     condition->graph_gen(this, "condition", out);
@@ -376,7 +403,7 @@ void Parser::WhileStmt::graph_gen(const void *parent_id, const std::string &conn
 }
 
 void Parser::ForStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string(), connection, out);
+  Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
 
   if (init_clause != nullptr) {
     init_clause->graph_gen(this, "Initialization", out);
@@ -392,11 +419,11 @@ void Parser::ForStmt::graph_gen(const void *parent_id, const std::string &connec
 }
 
 void Parser::ControlStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string(), connection, out);
+  Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
 }
 
 void Parser::ReturnStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string(), connection, out);
+  Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
 
   if (return_value != nullptr) {
     return_value->graph_gen(this, "return value", out);
@@ -404,9 +431,7 @@ void Parser::ReturnStmt::graph_gen(const void *parent_id, const std::string &con
 }
 
 void Parser::GotoStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string(), connection, out);
-
-  identifier->graph_gen(this, "label", out);
+  Node::graph_gen(parent_id, this, to_string() + ":\\n" + label, connection, "seagreen2", out);
 }
 
 void Parser::DeclarationNode::graph_gen_type(std::ostream &out) const { m_data_type->graph_gen(this, "type", "", out); }
@@ -415,7 +440,7 @@ void Parser::VariableDeclaration::graph_gen(const void *parent_id, const std::st
                                             std::ostream &out) const {
   // TODO better graph generation for declaration
   std::string str = to_string() + ":\\n" + identifier;
-  Node::graph_gen(parent_id, this, str, connection, out);
+  Node::graph_gen(parent_id, this, str, connection, "tomato2", out);
   DeclarationNode::graph_gen_type(out);
 
   if (initializer != nullptr) {
@@ -427,7 +452,7 @@ void Parser::FunctionDefinition::graph_gen(const void *parent_id, const std::str
                                            std::ostream &out) const {
   // TODO better graph generation for declaration
   std::string str = to_string() + ":\\n" + identifier;
-  Node::graph_gen(parent_id, this, str, connection, out);
+  Node::graph_gen(parent_id, this, str, connection, "tomato2", out);
   DeclarationNode::graph_gen_type(out);
 
   for (size_t i = 0; i < params.size(); ++i) {
@@ -443,7 +468,7 @@ void Parser::ArrayDeclaration::graph_gen(const void *parent_id, const std::strin
                                          std::ostream &out) const {
   // TODO better graph generation for declaration
   std::string str = to_string() + " " + identifier;
-  Node::graph_gen(parent_id, this, str, connection, out);
+  Node::graph_gen(parent_id, this, str, connection, "tomato2", out);
   DeclarationNode::graph_gen_type(out);
 
   if (initializer != nullptr) {
@@ -456,7 +481,7 @@ void Parser::ArrayDeclaration::graph_gen(const void *parent_id, const std::strin
 
 void Parser::TranslationUnit::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   // TODO better graph generation for declaration
-  Node::graph_gen(parent_id, this, to_string(), connection, out);
+  Node::graph_gen(parent_id, this, to_string(), connection, "grey", out);
 
   for (size_t i = 0; i < program.size(); ++i) {
     program[i]->graph_gen(this, std::to_string(i), out);

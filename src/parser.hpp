@@ -22,18 +22,7 @@ class Parser {
  public:
   // Forward Decls
   struct DataType;
-  struct Node;
-  struct ExpressionNode;
-  struct UnaryOpNode;
-  struct BinaryOpNode;
-  struct TernaryOpNode;
-  struct CallNode;
-  struct IdentifierNode;
-  struct ConstantNode;
-  struct StatementNode;
-  struct LabelStmt;
-  struct CompoundStmt;
-  struct DeclarationNode;
+  struct SemanticContext;
 
   using SharedDataType = std::shared_ptr<DataType>;
 
@@ -73,16 +62,35 @@ class Parser {
       is_volatile = qualifiers.contains(TypeQualifier::VOLATILE);
     }
 
-    inline bool operator==(const DataType &p_rhs) {
+    inline bool operator==(const DataType &p_rhs) const {
       // Bools for debugging
       bool same_kind = m_kind == p_rhs.m_kind;
       bool same_sign = m_is_signed == p_rhs.m_is_signed;
       bool same_size = m_size == p_rhs.m_size;
       return same_kind && same_sign && same_size;
     }
-    inline bool operator!=(const DataType &p_rhs) { return !(operator==(p_rhs)); }
+    inline bool operator!=(const DataType &p_rhs) const { return !(operator==(p_rhs)); }
+    inline bool operator==(const TypeKind &other_kind) const { return m_kind == other_kind; }
+    inline bool operator!=(const TypeKind &other_kind) const { return !(operator==(other_kind)); }
 
     virtual SharedDataType clone() const { return std::make_shared<DataType>(*this); }
+
+    // Semantic Analysis
+    inline bool is_character() const { return m_kind == TypeKind::TYPE_INT && m_size == 1; }
+    inline bool is_integer() const { return m_kind == TypeKind::TYPE_INT || m_kind == TypeKind::TYPE_ENUM; }
+    inline bool is_real() const { return is_integer() || m_kind == TypeKind::TYPE_FLOAT; }
+    inline bool is_arithemtic() const { return m_kind == TypeKind::TYPE_INT || m_kind == TypeKind::TYPE_FLOAT; }
+    inline bool is_scalar() const {
+      return is_arithemtic() || m_kind == DataType::TypeKind::TYPE_ENUM || m_kind == TypeKind::TYPE_POINTER;
+    }
+    virtual inline bool is_modifiable() const { return !is_const && (is_scalar()); }
+    virtual inline bool is_complete() const {
+      return (m_kind != TypeKind::TYPE_INCOMPLETE && m_kind != TypeKind::TYPE_UNRESOLVED &&
+              m_kind != TypeKind::TYPE_VOID);
+    }
+
+    // Graph Generation Debugging functions
+    std::string to_string() const;
     virtual void graph_gen(const void *parent_id, const std::string &connection, const std::string &name,
                            std::ostream &out) const;
     void graph_gen(const void *parent_id, const void *child_id, const std::string &name, const std::string &connection,
@@ -97,11 +105,19 @@ class Parser {
     };
     std::vector<StructUnionField> fields;
     std::string name = "";  // if "" then it's anonymous
-    unsigned int size = 0;
     unsigned int alignment = 0;
 
     StructUnionType() { m_kind = TypeKind::TYPE_INCOMPLETE; }
 
+    virtual inline bool is_modifiable() const override {
+      if (is_const) return false;
+      for (auto &field : fields) {
+        if (!field.type->is_modifiable()) {
+          return false;
+        }
+      }
+      return true;
+    }
     virtual SharedDataType clone() const override { return std::make_shared<DataType>(*this); }
     virtual void graph_gen(const void *parent_id, const std::string &connection, const std::string &name,
                            std::ostream &out) const override;
@@ -132,6 +148,10 @@ class Parser {
 
     PointerType() { m_kind = TypeKind::TYPE_POINTER; }
 
+    virtual inline bool is_complete() const override {
+      return *m_base_type == TypeKind::TYPE_POINTER || m_base_type->is_complete();
+    }
+
     virtual SharedDataType clone() const override { return std::make_shared<DataType>(*this); }
     virtual void graph_gen(const void *parent_id, const std::string &connection, const std::string &name,
                            std::ostream &out) const override;
@@ -141,6 +161,8 @@ class Parser {
     SharedDataType m_base_type = nullptr;
 
     ArrayType() { m_kind = TypeKind::TYPE_ARRAY; }
+
+    virtual inline bool is_complete() const override { return m_size > 0 && m_base_type->is_complete(); }
 
     virtual SharedDataType clone() const override { return std::make_shared<DataType>(*this); }
     virtual void graph_gen(const void *parent_id, const std::string &connection, const std::string &name,
@@ -160,6 +182,8 @@ class Parser {
       CONSTANT,
       // Statements
       LABEL_STATEMENT,
+      CASE_STATEMENT,
+      DEFAULT_STATEMENT,
       COMPOUND_STATEMENT,
       EXPRESSION_STATEMENT,
       IF_STATEMENT,
@@ -181,13 +205,20 @@ class Parser {
     NodeType node_type = NodeType::NONE;
     size_t m_line = 0;
     size_t m_column_start = 0;
+    std::string m_filename = "";
 
     virtual ~Node() = default;
-    virtual bool is_expression() const { return false; }
+
+    // Semantic Analysis
+    virtual void find_labels(std::unordered_set<std::string> *labels) = 0;
+    virtual void resolve_identifiers(SemanticContext *context) = 0;
+    virtual SharedDataType resolve_types(SemanticContext *context) = 0;
+
+    // Graph Generation For debugging
     virtual std::string to_string() const = 0;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const = 0;
     void graph_gen(const void *parent_id, const void *child_id, const std::string &name, const std::string &connection,
-                   std::ostream &out) const;
+                   const std::string &color, std::ostream &out) const;
   };
 
   using UniqueNode = std::unique_ptr<Node>;
@@ -198,7 +229,9 @@ class Parser {
     bool is_lvalue = false;
 
     virtual ~ExpressionNode() = default;
-    virtual bool is_expression() const override { return true; }
+
+    // Semantic Analysis
+    virtual void find_labels(std::unordered_set<std::string> *labels) override;
 
     void graph_gen_type(std::ostream &out) const;
 
@@ -228,6 +261,11 @@ class Parser {
 
     UnaryOpNode() { node_type = NodeType::UNARY_EXPRESSION; }
 
+    // Semantic Analysis
+    virtual void resolve_identifiers(SemanticContext *context) override;
+    virtual SharedDataType resolve_types(SemanticContext *context) override;
+
+    // Graph Generation
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
@@ -243,6 +281,10 @@ class Parser {
       // Bitshift
       OP_BIT_RIGHT,
       OP_BIT_LEFT,
+      // Bitwise
+      OP_BIT_AND,
+      OP_BIT_OR,
+      OP_BIT_XOR,
       // Comparison
       OP_COMP_GREATER,
       OP_COMP_LESS,
@@ -250,10 +292,6 @@ class Parser {
       OP_COMP_LESS_EQUAL,
       OP_COMP_EQUAL,
       OP_COMP_NOT_EQUAL,
-      // Bitwise
-      OP_BIT_AND,
-      OP_BIT_OR,
-      OP_BIT_XOR,
       // Logical
       OP_LOGIC_AND,
       OP_LOGIC_OR,
@@ -281,6 +319,11 @@ class Parser {
     UniqueExpression right_operand = nullptr;
 
     BinaryOpNode() { node_type = NodeType::BINARY_EXPRESSION; }
+
+    // Semantic Analysis
+    virtual void resolve_identifiers(SemanticContext *context) override;
+    virtual SharedDataType resolve_types(SemanticContext *context) override;
+
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
@@ -291,16 +334,24 @@ class Parser {
     UniqueExpression false_expr = nullptr;
 
     TernaryOpNode() { node_type = NodeType::TERNARY_EXPRESSION; }
+
+    // Semantic Analysis
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
 
   struct CallNode : public ExpressionNode {
-    std::string name = "";
+    std::string name = "";  // Name of function
     UniqueExpression callee = nullptr;
     std::vector<UniqueExpression> args;
 
     CallNode() { node_type = NodeType::FUNCTION_CALL; }
+
+    // Semantic Analysis
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
@@ -309,6 +360,10 @@ class Parser {
     std::string name = "";
 
     IdentifierNode() { node_type = NodeType::IDENTIFIER; }
+
+    // Semantic Analysis
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
@@ -325,6 +380,10 @@ class Parser {
     }
 
     ConstantNode() { node_type = NodeType::CONSTANT; }
+
+    // Semantic Analysis
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
@@ -332,7 +391,8 @@ class Parser {
   // Statements
   struct StatementNode : public Node {
     virtual ~StatementNode() = default;
-    virtual bool is_expression() const override { return false; }
+
+    virtual void find_labels(std::unordered_set<std::string> *labels) override;
 
    protected:
     StatementNode() = default;
@@ -341,13 +401,42 @@ class Parser {
   using UniqueStatement = std::unique_ptr<StatementNode>;
 
   struct LabelStmt : public StatementNode {
-    enum class LabelType { GOTO, CASE, DEFAULT };
-
-    LabelType label_type = LabelType::GOTO;
-    UniqueExpression expr = nullptr;  // Identifier for GOTO, Constant for Case
+    std::string label = "";
     UniqueStatement stmt = nullptr;
 
     LabelStmt() { node_type = NodeType::LABEL_STATEMENT; }
+
+    // Semantic Analysis
+    virtual void find_labels(std::unordered_set<std::string> *labels) override;
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
+    virtual std::string to_string() const override;
+    virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
+  };
+
+  struct CaseStmt : public StatementNode {
+    UniqueExpression expr = nullptr;
+    UniqueStatement stmt = nullptr;
+
+    CaseStmt() { node_type = NodeType::CASE_STATEMENT; }
+
+    // Semantic Analysis
+    virtual void find_labels(std::unordered_set<std::string> *labels) override;
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
+    virtual std::string to_string() const override;
+    virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
+  };
+
+  struct DefaultStmt : public StatementNode {
+    UniqueStatement stmt = nullptr;
+
+    DefaultStmt() { node_type = NodeType::DEFAULT_STATEMENT; }
+
+    // Semantic Analysis
+    virtual void find_labels(std::unordered_set<std::string> *labels) override;
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
@@ -356,6 +445,11 @@ class Parser {
     std::vector<UniqueNode> stmts;  // Can be Statements or Declarations
 
     CompoundStmt() { node_type = NodeType::COMPOUND_STATEMENT; }
+
+    // Semantic Analysis
+    virtual void find_labels(std::unordered_set<std::string> *labels) override;
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
@@ -364,6 +458,10 @@ class Parser {
     UniqueExpression expr = nullptr;
 
     ExpressionStmt() { node_type = NodeType::EXPRESSION_STATEMENT; }
+
+    // Semantic Analysis
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
@@ -374,6 +472,11 @@ class Parser {
     UniqueStatement false_stmt = nullptr;
 
     IfStmt() { node_type = NodeType::IF_STATEMENT; }
+
+    // Semantic Analysis
+    virtual void find_labels(std::unordered_set<std::string> *labels) override;
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
@@ -383,6 +486,11 @@ class Parser {
     UniqueStatement stmt = nullptr;
 
     SwitchStmt() { node_type = NodeType::SWITCH_STATEMENT; }
+
+    // Semantic Analysis
+    virtual void find_labels(std::unordered_set<std::string> *labels) override;
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
@@ -394,17 +502,27 @@ class Parser {
     UniqueStatement stmt = nullptr;
 
     WhileStmt() { node_type = NodeType::WHILE_STATEMENT; }
+
+    // Semantic Analysis
+    virtual void find_labels(std::unordered_set<std::string> *labels) override;
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
 
   struct ForStmt : public StatementNode {
-    UniqueNode init_clause = nullptr;  // TODO this can be expression, or declaration
+    UniqueNode init_clause = nullptr;
     UniqueExpression condition = nullptr;
     UniqueExpression iteration = nullptr;
     UniqueStatement stmt = nullptr;
 
     ForStmt() { node_type = NodeType::FOR_STATEMENT; }
+
+    // Semantic Analysis
+    virtual void find_labels(std::unordered_set<std::string> *labels) override;
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
@@ -414,6 +532,10 @@ class Parser {
     ControlType control = ControlType::BREAK;
 
     ControlStmt() { node_type = NodeType::CONTROL_STATEMENT; }
+
+    // Semantic Analysis
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
@@ -422,14 +544,22 @@ class Parser {
     UniqueExpression return_value = nullptr;
 
     ReturnStmt() { node_type = NodeType::RETURN_STATEMENT; }
+
+    // Semantic Analysis
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
 
   struct GotoStmt : public StatementNode {
-    UniqueExpression identifier;  // Must be an identifier
+    std::string label;
 
     GotoStmt() { node_type = NodeType::GOTO_STATEMENT; }
+
+    // Semantic Analysis
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
@@ -442,7 +572,11 @@ class Parser {
     std::string identifier;
 
     virtual ~DeclarationNode() = default;
-    virtual bool is_expression() const override { return false; }
+
+    // Semantic Analysis
+    virtual void find_labels(std::unordered_set<std::string> *labels) override;
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
     void graph_gen_type(std::ostream &out) const;
 
    protected:
@@ -465,6 +599,12 @@ class Parser {
     UniqueStatement body = nullptr;
 
     FunctionDefinition() { node_type = NodeType::FUNCTION_DECLARATION; }
+
+    // Semantic Analysis
+    std::unordered_set<std::string> labels;
+    virtual void find_labels(std::unordered_set<std::string> *labels) override;
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
@@ -483,6 +623,11 @@ class Parser {
     std::vector<UniqueDeclaration> program;
 
     TranslationUnit() { node_type = NodeType::TRANSLATION_UNIT; }
+
+    // Semantic Analysis
+    virtual void find_labels(std::unordered_set<std::string> *labels) override;
+    virtual void resolve_identifiers(SemanticContext *context) override;
+
     virtual std::string to_string() const override;
     virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
   };
@@ -495,6 +640,7 @@ class Parser {
 
     node->m_line = m_previous_tok.m_line;
     node->m_column_start = m_previous_tok.m_column_start;
+    node->m_filename = m_previous_tok.m_filename;
 
     return node;
   }
@@ -575,36 +721,36 @@ class Parser {
 
   // Parsing Context
   // A new context is pushed when entering into a function declaration
-  struct ParserContext {
+  struct TypeContext {
     std::unordered_map<std::string, SharedDataType> m_type_symbol_table;
     std::unordered_map<std::string, int> m_enumeration_constants;
 
-    std::unique_ptr<ParserContext> m_previous_context = nullptr;
+    std::unique_ptr<TypeContext> m_previous_context = nullptr;
   };
 
-  std::unique_ptr<ParserContext> m_current_context;
-  inline void push_context() {
-    std::unique_ptr<ParserContext> next_context = std::make_unique<ParserContext>();
-    next_context->m_previous_context = std::move(m_current_context);
-    m_current_context = std::move(next_context);
+  std::unique_ptr<TypeContext> m_current_type_context;
+  inline void push_type_context() {
+    std::unique_ptr<TypeContext> next_context = std::make_unique<TypeContext>();
+    next_context->m_previous_context = std::move(m_current_type_context);
+    m_current_type_context = std::move(next_context);
   }
-  inline void pop_context() { m_current_context = std::move(m_current_context->m_previous_context); }
+  inline void pop_type_context() { m_current_type_context = std::move(m_current_type_context->m_previous_context); }
 
   inline void push_type(const std::string &p_name, SharedDataType p_new_type) {
-    m_current_context->m_type_symbol_table[p_name] = p_new_type;
+    m_current_type_context->m_type_symbol_table[p_name] = p_new_type;
   }
 
   // Gets a type from the current context to allow for shadowing of types in previous context
   inline SharedDataType get_type_cur_context(const std::string &p_name) {
-    auto it = m_current_context->m_type_symbol_table.find(p_name);
-    if (it == m_current_context->m_type_symbol_table.end()) {
+    auto it = m_current_type_context->m_type_symbol_table.find(p_name);
+    if (it == m_current_type_context->m_type_symbol_table.end()) {
       return nullptr;
     }
     return it->second;
   }
 
   inline SharedDataType get_type(const std::string &p_name) {
-    ParserContext *context = m_current_context.get();
+    TypeContext *context = m_current_type_context.get();
     while (context != nullptr) {
       auto it = context->m_type_symbol_table.find(p_name);
       if (it != context->m_type_symbol_table.end()) {
@@ -617,7 +763,7 @@ class Parser {
   }
 
   std::optional<int> get_enum_val(const std::string &p_name) {
-    ParserContext *context = m_current_context.get();
+    TypeContext *context = m_current_type_context.get();
     while (context != nullptr) {
       auto it = context->m_enumeration_constants.find(p_name);
       if (it != context->m_enumeration_constants.end()) {
@@ -630,13 +776,27 @@ class Parser {
   }
 
   inline void set_enum_val(const std::string &p_name, int value) {
-    m_current_context->m_enumeration_constants[p_name] = value;
+    m_current_type_context->m_enumeration_constants[p_name] = value;
   }
 
   inline void register_base_type(const std::string &p_name, DataType::TypeKind p_kind, bool p_is_signed,
                                  unsigned int p_size) {
     push_type(p_name, std::make_shared<DataType>(p_kind, p_is_signed, p_size));
   }
+
+ public:
+  // Semantic Analysis Context
+  struct SemanticContext {
+    std::unordered_map<std::string, SharedDataType> identifiers;
+    std::unordered_set<std::string> labels;
+    SemanticContext *previous_context = nullptr;
+
+    static bool has_error;
+    static void error(const Node *node, const std::string &message);
+
+    SharedDataType get_identifier_type(const std::string &identifier);
+    void push_identifier(const std::string &identifier, SharedDataType type);
+  };
 
   // Tokens
  private:

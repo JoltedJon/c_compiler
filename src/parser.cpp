@@ -32,8 +32,6 @@ void Parser::error(const std::string &p_error_message) {
             << std::format("{} {}:{} {}\n{}", m_current_tok.m_filename, m_current_tok.m_line,
                            m_current_tok.m_column_start, m_current_tok.m_source, p_error_message)
             << std::endl;
-
-  abort();
 }
 
 void Parser::warning(const std::string &p_message) {
@@ -50,7 +48,7 @@ Parser::Parser(Lexer &lex) {
   m_current_tok = m_tokens[m_token_index++];
   m_previous_tok = m_current_tok;
 
-  m_current_context = std::make_unique<ParserContext>();
+  m_current_type_context = std::make_unique<TypeContext>();
 
   // Register builtin datatypes
   register_base_type("unsigned char", DataType::TypeKind::TYPE_INT, false, 1);
@@ -727,9 +725,9 @@ Parser::UniqueStatement Parser::parse_for_statement() {
   for_statement->condition = std::move(condition);
   for_statement->iteration = std::move(iteration);
 
-  push_context();
+  push_type_context();
   for_statement->stmt = parse_statement();
-  pop_context();
+  pop_type_context();
 
   return UniqueStatement(for_statement);
 }
