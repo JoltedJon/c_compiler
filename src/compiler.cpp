@@ -35,8 +35,12 @@ void Compiler::compile(std::string filename) {
     return;
   }
 
-  p.graph_gen(std::cout, program.get());
   program->constant_fold();
+  if (SemanticContext::has_error) {
+    return;
+  }
+
+  program->control_flow(nullptr);
   if (SemanticContext::has_error) {
     return;
   }

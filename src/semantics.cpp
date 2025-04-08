@@ -5,8 +5,7 @@ Split into multiple stages:
   2) Check for use of undeclared identifiers
   3) Resolve types for expressions, Struct/Union validation, Function Call Validation
   4) Constant Folding
-  5) Lvalue/Rvalue Check
-  6) Control Flow Check (Return in non-void function, break/continue in loop/switch)
+  5) Control Flow Check (Return in non-void function, break/continue in loop/switch)
 */
 
 #include "semantics.hpp"
@@ -335,9 +334,11 @@ void TranslationUnit::resolve_identifiers(SemanticContext *context) {
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////
 // Resolve Types
 
 bool type_compatible(SharedDataType t1, SharedDataType t2) {
+  std::cerr << "Warning: Type compatibality not yet implemented";
   return true;
   fatal_error("Not Yet Implemented");
 }
@@ -796,7 +797,7 @@ SharedDataType ArrayDeclaration::resolve_types() {
 
   if (init_type == nullptr) return nullptr;
 
-  // TODO
+  // TODO arrays not yet implemented
   if (init_type != m_data_type) {
     SemanticContext::error(
         this, std::format(R"(incompatible types "{}" and "{}")", m_data_type->to_string(), init_type->to_string()));
@@ -822,6 +823,91 @@ SharedDataType TranslationUnit::resolve_types() {
   }
 
   return nullptr;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////
+// Control Flow
+
+void ExpressionNode::control_flow(FlowContext *p_context) { return; }
+
+void StatementNode::control_flow(FlowContext *p_context) { return; }
+
+void CaseStmt::control_flow(FlowContext *p_context) {
+  if (p_context->in_switch == 0) {
+    SemanticContext::error(this, R"("case" statement not in switch statement)");
+  }
+}
+
+void DefaultStmt::control_flow(FlowContext *p_context) {
+  if (!p_context->in_switch == 0) {
+    SemanticContext::error(this, R"("default" statement not in switch statement)");
+  }
+}
+
+void CompoundStmt::control_flow(FlowContext *p_context) {
+  for (auto &stmt : m_stmts) {
+    stmt->control_flow(p_context);
+  }
+}
+
+void IfStmt::control_flow(FlowContext *p_context) {
+  m_true_stmt->control_flow(p_context);
+  if (m_false_stmt != nullptr) {
+    m_false_stmt->control_flow(p_context);
+  }
+}
+
+void SwitchStmt::control_flow(FlowContext *p_context) {
+  p_context->in_switch++;
+  m_stmt->control_flow(p_context);
+  p_context->in_switch--;
+}
+
+void WhileStmt::control_flow(FlowContext *p_context) {
+  p_context->in_loop++;
+  m_stmt->control_flow(p_context);
+  p_context->in_loop--;
+}
+
+void ForStmt::control_flow(FlowContext *p_context) {
+  p_context->in_loop++;
+  m_stmt->control_flow(p_context);
+  p_context->in_loop--;
+}
+
+void ControlStmt::control_flow(FlowContext *p_context) {
+  if (m_control == ControlType::CONTINUE) {
+    if (p_context->in_loop == 0) {
+      SemanticContext::error(this, R"("continue" statement not in loop statement)");
+    }
+  }
+  else {
+    if (p_context->in_loop == 0 && p_context->in_switch == 0) {
+      SemanticContext::error(this, R"("break" statement not in loop or switch statement)");
+    }
+  }
+}
+
+void ReturnStmt::control_flow(FlowContext *p_context) {
+  // TODO check if types are compatible
+  fatal_error("Not Yet Implemented");
+}
+
+void DeclarationNode::control_flow(FlowContext *p_context) { return; }
+
+void FunctionDefinition::control_flow(FlowContext *p_context) {
+  std::unique_ptr<FlowContext> context = std::make_unique<FlowContext>();
+
+  context->return_type = dynamic_cast<FunctionType *>(m_data_type.get())->m_return_type;
+
+  m_body->control_flow(context.get());
+}
+
+void TranslationUnit::control_flow(FlowContext *p_context) {
+  for (auto &p : m_program) {
+    p->control_flow(p_context);
+  }
 }
 
 }  // namespace JCC

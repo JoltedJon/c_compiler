@@ -20,4 +20,10 @@ struct SemanticContext {
   static void error(const Node *node, const std::string &message);
 };
 
+struct FlowContext {
+  SharedDataType return_type = nullptr;
+  int in_loop = 0;
+  int in_switch = 0;
+};
+
 }  // namespace JCC
