@@ -150,6 +150,7 @@ struct Token {
   std::string m_filename;
   uint32_t m_line;
   uint32_t m_column_start;
+  uint32_t m_source_index;
 
   Type m_type;
   NumType m_num_type;
@@ -157,11 +158,12 @@ struct Token {
   LiteralType m_literal;
 
   Token() : m_type(Type::EOFF) {}
-  Token(std::string p_filename, uint32_t p_line, uint32_t p_column_start, Type p_type, std::string p_source,
-        LiteralType p_literal)
+  Token(std::string p_filename, uint32_t p_line, uint32_t p_column_start, uint32_t p_source_index, Type p_type,
+        std::string p_source, LiteralType p_literal)
       : m_filename(p_filename),
         m_line(p_line),
         m_column_start(p_column_start),
+        m_source_index(p_source_index),
         m_type(p_type),
         m_num_type(NumType::NONE),
         m_source(p_source),

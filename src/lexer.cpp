@@ -290,7 +290,8 @@ void Lexer::scan_token() {
 void Lexer::make_token(Token::Type p_type) { make_token(p_type, 0ul); }
 void Lexer::make_token(Token::Type p_type, LiteralType p_literal) {
   int source_length = m_current - m_start;
-  m_tokens.emplace_back(m_filename, m_line, m_column_start, p_type, m_source.substr(m_start, source_length), p_literal);
+  m_tokens.emplace_back(m_filename, m_line, m_column_start, m_start, p_type, m_source.substr(m_start, source_length),
+                        p_literal);
 }
 
 void Lexer::read_char() {
@@ -752,6 +753,18 @@ void Lexer::preprocess() {
     else if (current_token == Token::Type::IDENTIFIER) {
       std::vector<Token> expanded_macro = expand_macro(current_token);
       new_tokens.insert(new_tokens.end(), expanded_macro.begin(), expanded_macro.end());
+    }
+    else if (current_token == Token::Type::ERROR) {
+      current_token = next_token();
+
+      uint32_t start_column = current_token.m_source_index;
+      while (current_token != Token::Type::NEWLINE && current_token != Token::Type::EOFF) {
+        current_token = next_token();
+      }
+      uint32_t end_column = current_token.m_source_index;
+
+      std::string message = m_source.substr(start_column, end_column - start_column);
+      error(message);
     }
     else if (current_token != Token::Type::NEWLINE) {
       // Discard all newlines since they are purely for Preprocessing

@@ -1,7 +1,7 @@
 Semantic Analysis:
 
 - Checks to see if types are compatible is not implemented
-- Basic control flow, need to ensure continue and break aren't used outside of loops or switch statements for break, default and case can on
+- Finish checking for returns in non-void function
 
 Syntax Analysis:
 
