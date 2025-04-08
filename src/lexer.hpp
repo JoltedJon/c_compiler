@@ -11,7 +11,8 @@
 
 namespace JCC {
 
-using LiteralType = std::variant<int64_t, uint64_t, double, std::string>;
+using LiteralType =
+    std::variant<int8_t, uint8_t, int16_t, uint16_t, int32_t, uint32_t, int64_t, uint64_t, float, double, std::string>;
 
 struct Token {
   enum Type {
@@ -137,12 +138,21 @@ struct Token {
 
     EOFF
   };
+  enum class NumType {
+    NONE,
+    SIGNED_INTEGER,
+    UNSIGNED_INTEGER,
+    SIGNED_LONG,
+    UNSIGNED_LONG,
+    DOUBLE,
+  };
 
   std::string m_filename;
   uint32_t m_line;
   uint32_t m_column_start;
 
   Type m_type;
+  NumType m_num_type;
   std::string m_source;
   LiteralType m_literal;
 
@@ -153,6 +163,7 @@ struct Token {
         m_line(p_line),
         m_column_start(p_column_start),
         m_type(p_type),
+        m_num_type(NumType::NONE),
         m_source(p_source),
         m_literal(p_literal) {}
 
@@ -236,6 +247,8 @@ class Lexer {
 
   void make_token(Token::Type p_type);
   void make_token(Token::Type p_type, LiteralType p_literal);
+
+  Token::NumType read_integer_suffix();
 
   void read_number();
   void read_char();

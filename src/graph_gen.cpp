@@ -4,6 +4,7 @@
 
 #include "ansi_colors.hpp"
 #include "parser.hpp"
+#include "src/ast.hpp"
 
 namespace JCC {
 
@@ -14,8 +15,8 @@ void Parser::graph_gen(std::ostream &out, const Node *node) const {
   out << "}\n\n";
 }
 
-void Parser::Node::graph_gen(const void *parent_id, const void *id, const std::string &name,
-                             const std::string &connection, const std::string &color, std::ostream &out) const {
+void Node::graph_gen(const void *parent_id, const void *id, const std::string &name, const std::string &connection,
+                     const std::string &color, std::ostream &out) const {
   if (parent_id == nullptr) {
     out << "digraph {\n N" << id << "[label=\"" << name << "\";style=filled;color=" << color << "]\n";
   }
@@ -25,21 +26,21 @@ void Parser::Node::graph_gen(const void *parent_id, const void *id, const std::s
   }
 }
 
-void Parser::DataType::graph_gen(const void *parent_id, const void *id, const std::string &name,
-                                 const std::string &connection, std::ostream &out) const {
+void DataType::graph_gen(const void *parent_id, const void *id, const std::string &name, const std::string &connection,
+                         std::ostream &out) const {
   out << " N" << parent_id << " -> {N" << id << " [label=\"" << name << "\"]} [label=\"" << connection << "\"]\n";
 }
 
-void Parser::DataType::graph_gen(const void *parent_id, const std::string &connection, const std::string &name,
-                                 std::ostream &out) const {
+void DataType::graph_gen(const void *parent_id, const std::string &connection, const std::string &name,
+                         std::ostream &out) const {
   std::stringstream ss;
-  if (is_const) {
+  if (m_is_const) {
     ss << "const ";
   }
-  if (is_restricted) {
+  if (m_is_restricted) {
     ss << "restrict ";
   }
-  if (is_volatile) {
+  if (m_is_volatile) {
     ss << "volatile ";
   }
   switch (m_kind) {
@@ -81,12 +82,12 @@ void Parser::DataType::graph_gen(const void *parent_id, const std::string &conne
   graph_gen(parent_id, this, ss.str(), connection, out);
 }
 
-void Parser::StructUnionType::graph_gen(const void *p_parent_id, const std::string &p_connection,
-                                        const std::string &p_name, std::ostream &out) const {
-  DataType::graph_gen(p_parent_id, p_connection, name, out);
-  for (size_t i = 0; i < fields.size(); ++i) {
+void StructUnionType::graph_gen(const void *p_parent_id, const std::string &p_connection, const std::string &p_name,
+                                std::ostream &out) const {
+  DataType::graph_gen(p_parent_id, p_connection, m_name, out);
+  for (size_t i = 0; i < m_fields.size(); ++i) {
     std::string str = "";
-    switch (fields[i].field_type) {
+    switch (m_fields[i].m_field_type) {
       case StructUnionField::FieldType::STRUCT_FIELD:
         str += "struct_field ";
         break;
@@ -94,31 +95,31 @@ void Parser::StructUnionType::graph_gen(const void *p_parent_id, const std::stri
         str += "union_field ";
         break;
     }
-    str += fields[i].name;
-    fields[i].type->graph_gen(this, str, "", out);
+    str += m_fields[i].m_name;
+    m_fields[i].m_type->graph_gen(this, str, "", out);
   }
 }
 
-void Parser::FunctionType::graph_gen(const void *p_parent_id, const std::string &p_connection,
-                                     const std::string &p_name, std::ostream &out) const {
+void FunctionType::graph_gen(const void *p_parent_id, const std::string &p_connection, const std::string &p_name,
+                             std::ostream &out) const {
   DataType::graph_gen(p_parent_id, p_connection, "", out);
 
-  return_type->graph_gen(this, "return type", "", out);
+  m_return_type->graph_gen(this, "return type", "", out);
 }
 
-void Parser::PointerType::graph_gen(const void *p_parent_id, const std::string &p_connection, const std::string &p_name,
-                                    std::ostream &out) const {
+void PointerType::graph_gen(const void *p_parent_id, const std::string &p_connection, const std::string &p_name,
+                            std::ostream &out) const {
   DataType::graph_gen(p_parent_id, p_connection, "", out);
   m_base_type->graph_gen(this, "to", "", out);
 }
 
-void Parser::ArrayType::graph_gen(const void *p_parent_id, const std::string &p_connection, const std::string &p_name,
-                                  std::ostream &out) const {
+void ArrayType::graph_gen(const void *p_parent_id, const std::string &p_connection, const std::string &p_name,
+                          std::ostream &out) const {
   DataType::graph_gen(p_parent_id, p_connection, "", out);
   m_base_type->graph_gen(this, "of", "", out);
 }
 
-std::string Parser::DataType::to_string() const {
+std::string DataType::to_string() const {
   switch (m_kind) {
     case TypeKind::TYPE_UNRESOLVED:
       return "unresolved";
@@ -146,129 +147,126 @@ std::string Parser::DataType::to_string() const {
   return "";
 }
 
-std::string Parser::UnaryOpNode::to_string() const {
-  switch (operation) {
-    case Parser::UnaryOpNode::OpType::OP_POSITIVE:
+std::string UnaryOpNode::to_string() const {
+  switch (m_operation) {
+    case UnaryOpNode::OpType::OP_POSITIVE:
       return "+";
-    case Parser::UnaryOpNode::OpType::OP_NEGATIVE:
+    case UnaryOpNode::OpType::OP_NEGATIVE:
       return "-";
-    case Parser::UnaryOpNode::OpType::OP_INCREMENT:
+    case UnaryOpNode::OpType::OP_INCREMENT:
       return "++prefix";
-    case Parser::UnaryOpNode::OpType::OP_DECREMENT:
+    case UnaryOpNode::OpType::OP_DECREMENT:
       return "--prefix";
-    case Parser::UnaryOpNode::OpType::OP_POST_INCREMENT:
+    case UnaryOpNode::OpType::OP_POST_INCREMENT:
       return "postfix++";
-    case Parser::UnaryOpNode::OpType::OP_POST_DECREMENT:
+    case UnaryOpNode::OpType::OP_POST_DECREMENT:
       return "postfix--";
-    case Parser::UnaryOpNode::OpType::OP_LOGIC_NOT:
+    case UnaryOpNode::OpType::OP_LOGIC_NOT:
       return "!";
-    case Parser::UnaryOpNode::OpType::OP_BITWISE_NOT:
+    case UnaryOpNode::OpType::OP_BITWISE_NOT:
       return "~";
-    case Parser::UnaryOpNode::OpType::OP_ADDRESS_OF:
+    case UnaryOpNode::OpType::OP_ADDRESS_OF:
       return "&";
-    case Parser::UnaryOpNode::OpType::OP_INDIRECTION:
+    case UnaryOpNode::OpType::OP_INDIRECTION:
       return "*";
-    case Parser::UnaryOpNode::OpType::OP_SIZEOF:
+    case UnaryOpNode::OpType::OP_SIZEOF:
       return "sizeof";
+    case UnaryOpNode::OpType::OP_CAST:
+      return "cast";
   }
   return "";
 }
-std::string Parser::BinaryOpNode::to_string() const {
-  switch (operation) {
-    case Parser::BinaryOpNode::OpType::OP_ADDITION:
+std::string BinaryOpNode::to_string() const {
+  switch (m_operation) {
+    case BinaryOpNode::OpType::OP_ADDITION:
       return "+";
-    case Parser::BinaryOpNode::OpType::OP_SUBTRACTION:
+    case BinaryOpNode::OpType::OP_SUBTRACTION:
       return "-";
-    case Parser::BinaryOpNode::OpType::OP_MULTIPLICATION:
+    case BinaryOpNode::OpType::OP_MULTIPLICATION:
       return "*";
-    case Parser::BinaryOpNode::OpType::OP_DIVISION:
+    case BinaryOpNode::OpType::OP_DIVISION:
       return "/";
-    case Parser::BinaryOpNode::OpType::OP_MODULO:
+    case BinaryOpNode::OpType::OP_MODULO:
       return "%";
-    case Parser::BinaryOpNode::OpType::OP_BIT_RIGHT:
+    case BinaryOpNode::OpType::OP_BIT_RIGHT:
       return ">>";
-    case Parser::BinaryOpNode::OpType::OP_BIT_LEFT:
+    case BinaryOpNode::OpType::OP_BIT_LEFT:
       return "<<";
-    case Parser::BinaryOpNode::OpType::OP_COMP_GREATER:
+    case BinaryOpNode::OpType::OP_COMP_GREATER:
       return ">";
-    case Parser::BinaryOpNode::OpType::OP_COMP_LESS:
+    case BinaryOpNode::OpType::OP_COMP_LESS:
       return "<";
-    case Parser::BinaryOpNode::OpType::OP_COMP_GREATER_EQUAL:
+    case BinaryOpNode::OpType::OP_COMP_GREATER_EQUAL:
       return ">=";
-    case Parser::BinaryOpNode::OpType::OP_COMP_LESS_EQUAL:
+    case BinaryOpNode::OpType::OP_COMP_LESS_EQUAL:
       return "<=";
-    case Parser::BinaryOpNode::OpType::OP_COMP_EQUAL:
+    case BinaryOpNode::OpType::OP_COMP_EQUAL:
       return "==";
-    case Parser::BinaryOpNode::OpType::OP_COMP_NOT_EQUAL:
+    case BinaryOpNode::OpType::OP_COMP_NOT_EQUAL:
       return "!=";
-    case Parser::BinaryOpNode::OpType::OP_BIT_AND:
+    case BinaryOpNode::OpType::OP_BIT_AND:
       return "&";
-    case Parser::BinaryOpNode::OpType::OP_BIT_OR:
+    case BinaryOpNode::OpType::OP_BIT_OR:
       return "|";
-    case Parser::BinaryOpNode::OpType::OP_BIT_XOR:
+    case BinaryOpNode::OpType::OP_BIT_XOR:
       return "^";
-    case Parser::BinaryOpNode::OpType::OP_LOGIC_AND:
+    case BinaryOpNode::OpType::OP_LOGIC_AND:
       return "&&";
-    case Parser::BinaryOpNode::OpType::OP_LOGIC_OR:
+    case BinaryOpNode::OpType::OP_LOGIC_OR:
       return "||";
-    case Parser::BinaryOpNode::OpType::OP_ASSIGN:
+    case BinaryOpNode::OpType::OP_ASSIGN:
       return "=";
-    case Parser::BinaryOpNode::OpType::OP_ADD_ASSIGN:
+    case BinaryOpNode::OpType::OP_ADD_ASSIGN:
       return "+=";
-    case Parser::BinaryOpNode::OpType::OP_SUBTRACT_ASSIGN:
+    case BinaryOpNode::OpType::OP_SUBTRACT_ASSIGN:
       return "-=";
-    case Parser::BinaryOpNode::OpType::OP_MULTIPLY_ASSIGN:
+    case BinaryOpNode::OpType::OP_MULTIPLY_ASSIGN:
       return "*=";
-    case Parser::BinaryOpNode::OpType::OP_DIVIDE_ASSIGN:
+    case BinaryOpNode::OpType::OP_DIVIDE_ASSIGN:
       return "/=";
-    case Parser::BinaryOpNode::OpType::OP_MODULO_ASSIGN:
+    case BinaryOpNode::OpType::OP_MODULO_ASSIGN:
       return "%/";
-    case Parser::BinaryOpNode::OpType::OP_BITWISE_AND_ASSIGN:
+    case BinaryOpNode::OpType::OP_BITWISE_AND_ASSIGN:
       return "&=";
-    case Parser::BinaryOpNode::OpType::OP_BITWISE_OR_ASSIGN:
+    case BinaryOpNode::OpType::OP_BITWISE_OR_ASSIGN:
       return "|=";
-    case Parser::BinaryOpNode::OpType::OP_BITWISE_XOR_ASSIGN:
+    case BinaryOpNode::OpType::OP_BITWISE_XOR_ASSIGN:
       return "^=";
-    case Parser::BinaryOpNode::OpType::OP_LEFT_SHIFT_ASSIGN:
+    case BinaryOpNode::OpType::OP_LEFT_SHIFT_ASSIGN:
       return "<<=";
-    case Parser::BinaryOpNode::OpType::OP_RIGHT_SHIFT_ASSIGN:
+    case BinaryOpNode::OpType::OP_RIGHT_SHIFT_ASSIGN:
       return ">>=";
-    case Parser::BinaryOpNode::OpType::OP_ARRAY_SUBSCRIPT:
+    case BinaryOpNode::OpType::OP_ARRAY_SUBSCRIPT:
       return "[";
-    case Parser::BinaryOpNode::OpType::OP_DIRECT_MEM_ACCESS:
+  }
+  return "";
+}
+std::string TernaryOpNode::to_string() const { return "? :"; }
+std::string MemberAccessNode::to_string() const {
+  switch (m_access_type) {
+    case OpType::OP_DIRECT_MEM_ACCESS:
       return ".";
-    case Parser::BinaryOpNode::OpType::OP_INDIRECT_MEM_ACCESS:
+    case OpType::OP_INDIRECT_MEM_ACCESS:
       return "->";
   }
   return "";
 }
-std::string Parser::TernaryOpNode::to_string() const { return "? :"; }
-std::string Parser::CallNode::to_string() const { return "function call"; }
-std::string Parser::IdentifierNode::to_string() const { return name; }
-std::string Parser::ConstantNode::to_string() const {
+std::string CallNode::to_string() const { return "function call"; }
+std::string IdentifierNode::to_string() const { return m_name; }
+std::string ConstantNode::to_string() const {
   std::stringstream ss;
-  switch (val_type) {
-    case ConstantNode::ValType::INTEGER:
-      ss << get_val<uint64_t>();
-      break;
-    case ConstantNode::ValType::FLOAT:
-      ss << get_val<double>();
-      break;
-    case ConstantNode::ValType::STRING:
-      ss << get_val<std::string>();
-      break;
-  }
+  std::visit([&](auto &&val) -> void { ss << val; }, m_value);
   return ss.str();
 }
-std::string Parser::LabelStmt::to_string() const { return "label"; }
-std::string Parser::CaseStmt::to_string() const { return "case"; }
-std::string Parser::DefaultStmt::to_string() const { return "default"; }
-std::string Parser::CompoundStmt::to_string() const { return "Compound Statement"; }
-std::string Parser::ExpressionStmt::to_string() const { return "Expression Statement"; }
-std::string Parser::IfStmt::to_string() const { return "If"; }
-std::string Parser::SwitchStmt::to_string() const { return "Switch"; }
-std::string Parser::WhileStmt::to_string() const {
-  switch (while_type) {
+std::string LabelStmt::to_string() const { return "label"; }
+std::string CaseStmt::to_string() const { return "case"; }
+std::string DefaultStmt::to_string() const { return "default"; }
+std::string CompoundStmt::to_string() const { return "Compound Statement"; }
+std::string ExpressionStmt::to_string() const { return "Expression Statement"; }
+std::string IfStmt::to_string() const { return "If"; }
+std::string SwitchStmt::to_string() const { return "Switch"; }
+std::string WhileStmt::to_string() const {
+  switch (m_while_type) {
     case WhileType::WHILE:
       return "While";
     case WhileType::DO:
@@ -276,9 +274,9 @@ std::string Parser::WhileStmt::to_string() const {
   }
   return "";
 }
-std::string Parser::ForStmt::to_string() const { return "For"; }
-std::string Parser::ControlStmt::to_string() const {
-  switch (control) {
+std::string ForStmt::to_string() const { return "For"; }
+std::string ControlStmt::to_string() const {
+  switch (m_control) {
     case ControlType::BREAK:
       return "break";
     case ControlType::CONTINUE:
@@ -286,205 +284,205 @@ std::string Parser::ControlStmt::to_string() const {
   }
   return "";
 }
-std::string Parser::ReturnStmt::to_string() const { return "return"; }
-std::string Parser::GotoStmt::to_string() const { return "goto"; }
+std::string ReturnStmt::to_string() const { return "return"; }
+std::string GotoStmt::to_string() const { return "goto"; }
 
-std::string Parser::VariableDeclaration::to_string() const { return "Variable Declaration"; }
-std::string Parser::FunctionDefinition::to_string() const { return "Function Definition"; }
-std::string Parser::ArrayDeclaration::to_string() const { return "Array Declaration"; }
-std::string Parser::TranslationUnit::to_string() const { return "Translation Unit"; }
+std::string VariableDeclaration::to_string() const { return "Variable Declaration"; }
+std::string FunctionDefinition::to_string() const { return "Function Definition"; }
+std::string ArrayDeclaration::to_string() const { return "Array Declaration"; }
+std::string TranslationUnit::to_string() const { return "Translation Unit"; }
 
-void Parser::ExpressionNode::graph_gen_type(std::ostream &out) const { d_type->graph_gen(this, "type", "", out); }
+void ExpressionNode::graph_gen_type(std::ostream &out) const { m_data_type->graph_gen(this, "type", "", out); }
 
-void Parser::UnaryOpNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+void UnaryOpNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   Node::graph_gen(parent_id, this, to_string(), connection, "lightskyblue", out);
   ExpressionNode::graph_gen_type(out);
 
-  operand->graph_gen(this, "expr", out);
+  m_operand->graph_gen(this, "expr", out);
 }
 
-void Parser::BinaryOpNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+void BinaryOpNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   Node::graph_gen(parent_id, this, to_string(), connection, "lightskyblue", out);
   ExpressionNode::graph_gen_type(out);
 
-  left_operand->graph_gen(this, "left", out);
-  right_operand->graph_gen(this, "right", out);
+  m_left_operand->graph_gen(this, "left", out);
+  m_right_operand->graph_gen(this, "right", out);
 }
 
-void Parser::TernaryOpNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+void TernaryOpNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   Node::graph_gen(parent_id, this, to_string(), connection, "lightskyblue", out);
   ExpressionNode::graph_gen_type(out);
 
-  condition->graph_gen(this, "condition", out);
-  true_expr->graph_gen(this, "true", out);
-  false_expr->graph_gen(this, "false", out);
+  m_condition->graph_gen(this, "condition", out);
+  m_true_expr->graph_gen(this, "true", out);
+  m_false_expr->graph_gen(this, "false", out);
 }
 
-void Parser::CallNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string() + ":\\n" + name, connection, "lightskyblue", out);
+void MemberAccessNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+  Node::graph_gen(parent_id, this, to_string(), connection, "lightskyblue", out);
   ExpressionNode::graph_gen_type(out);
 
-  callee->graph_gen(this, "name", out);
-  for (size_t i = 0; i < args.size(); ++i) {
-    args[i]->graph_gen(this, "arg " + std::to_string(i + 1), out);
+  m_expr->graph_gen(this, "container", out);
+  Node::graph_gen(this, &m_member, m_member, "member", "lightskyblue", out);
+}
+
+void CallNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+  Node::graph_gen(parent_id, this, to_string() + ":\\n" + m_name, connection, "lightskyblue", out);
+  ExpressionNode::graph_gen_type(out);
+
+  m_callee->graph_gen(this, "name", out);
+  for (size_t i = 0; i < m_args.size(); ++i) {
+    m_args[i]->graph_gen(this, "arg " + std::to_string(i + 1), out);
   }
 }
 
-void Parser::IdentifierNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+void IdentifierNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   Node::graph_gen(parent_id, this, to_string(), connection, "khaki3", out);
   ExpressionNode::graph_gen_type(out);
 }
-void Parser::ConstantNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+void ConstantNode::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   Node::graph_gen(parent_id, this, to_string(), connection, "lawngreen", out);
   ExpressionNode::graph_gen_type(out);
 }
 
-void Parser::LabelStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string() + ":\\n" + label, connection, "seagreen2", out);
-
-  stmt->graph_gen(this, "statement", out);
+void LabelStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+  Node::graph_gen(parent_id, this, to_string() + ":\\n" + m_label, connection, "seagreen2", out);
 }
 
-void Parser::CaseStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+void CaseStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
 
-  if (expr != nullptr) {
-    expr->graph_gen(this, "Expr", out);
-  }
-  stmt->graph_gen(this, "statement", out);
-}
-
-void Parser::DefaultStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
-  stmt->graph_gen(this, "statement", out);
-}
-
-void Parser::CompoundStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
-
-  for (size_t i = 0; i < stmts.size(); ++i) {
-    stmts[i]->graph_gen(this, std::to_string(i), out);
+  if (m_expr != nullptr) {
+    m_expr->graph_gen(this, "Expr", out);
   }
 }
 
-void Parser::ExpressionStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+void DefaultStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
-  if (expr != nullptr) {
-    expr->graph_gen(this, "expression", out);
+}
+
+void CompoundStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+  Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
+
+  for (size_t i = 0; i < m_stmts.size(); ++i) {
+    m_stmts[i]->graph_gen(this, std::to_string(i), out);
   }
 }
 
-void Parser::IfStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+void ExpressionStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
-  condition->graph_gen(this, "condition", out);
-  true_stmt->graph_gen(this, "then", out);
-  if (false_stmt != nullptr) {
-    false_stmt->graph_gen(this, "else", out);
+  if (m_expr != nullptr) {
+    m_expr->graph_gen(this, "expression", out);
   }
 }
 
-void Parser::SwitchStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+void IfStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
-  expr->graph_gen(this, "Expression", out);
-  stmt->graph_gen(this, "statement", out);
+  m_condition->graph_gen(this, "condition", out);
+  m_true_stmt->graph_gen(this, "then", out);
+  if (m_false_stmt != nullptr) {
+    m_false_stmt->graph_gen(this, "else", out);
+  }
 }
 
-void Parser::WhileStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+void SwitchStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+  Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
+  m_expr->graph_gen(this, "Expression", out);
+  m_stmt->graph_gen(this, "statement", out);
+}
+
+void WhileStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
 
-  if (while_type == WhileType::WHILE) {
-    condition->graph_gen(this, "condition", out);
-    stmt->graph_gen(this, "statement", out);
+  if (m_while_type == WhileType::WHILE) {
+    m_condition->graph_gen(this, "condition", out);
+    m_stmt->graph_gen(this, "statement", out);
   }
   else {
-    stmt->graph_gen(this, "statement", out);
-    condition->graph_gen(this, "condition", out);
+    m_stmt->graph_gen(this, "statement", out);
+    m_condition->graph_gen(this, "condition", out);
   }
 }
 
-void Parser::ForStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+void ForStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
 
-  if (init_clause != nullptr) {
-    init_clause->graph_gen(this, "Initialization", out);
+  if (m_init_clause != nullptr) {
+    m_init_clause->graph_gen(this, "Initialization", out);
   }
-  if (condition != nullptr) {
-    condition->graph_gen(this, "condition", out);
+  if (m_condition != nullptr) {
+    m_condition->graph_gen(this, "condition", out);
   }
-  if (iteration != nullptr) {
-    iteration->graph_gen(this, "iteration", out);
+  if (m_iteration != nullptr) {
+    m_iteration->graph_gen(this, "iteration", out);
   }
 
-  stmt->graph_gen(this, "statement", out);
+  m_stmt->graph_gen(this, "statement", out);
 }
 
-void Parser::ControlStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+void ControlStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
 }
 
-void Parser::ReturnStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+void ReturnStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   Node::graph_gen(parent_id, this, to_string(), connection, "seagreen2", out);
 
-  if (return_value != nullptr) {
-    return_value->graph_gen(this, "return value", out);
+  if (m_return_value != nullptr) {
+    m_return_value->graph_gen(this, "return value", out);
   }
 }
 
-void Parser::GotoStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  Node::graph_gen(parent_id, this, to_string() + ":\\n" + label, connection, "seagreen2", out);
+void GotoStmt::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
+  Node::graph_gen(parent_id, this, to_string() + ":\\n" + m_label, connection, "seagreen2", out);
 }
 
-void Parser::DeclarationNode::graph_gen_type(std::ostream &out) const { m_data_type->graph_gen(this, "type", "", out); }
+void DeclarationNode::graph_gen_type(std::ostream &out) const { m_data_type->graph_gen(this, "type", "", out); }
 
-void Parser::VariableDeclaration::graph_gen(const void *parent_id, const std::string &connection,
-                                            std::ostream &out) const {
+void VariableDeclaration::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   // TODO better graph generation for declaration
-  std::string str = to_string() + ":\\n" + identifier;
+  std::string str = to_string() + ":\\n" + m_identifier;
   Node::graph_gen(parent_id, this, str, connection, "tomato2", out);
   DeclarationNode::graph_gen_type(out);
 
-  if (initializer != nullptr) {
-    initializer->graph_gen(this, "initial value", out);
+  if (m_initializer != nullptr) {
+    m_initializer->graph_gen(this, "initial value", out);
   }
 }
 
-void Parser::FunctionDefinition::graph_gen(const void *parent_id, const std::string &connection,
-                                           std::ostream &out) const {
+void FunctionDefinition::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   // TODO better graph generation for declaration
-  std::string str = to_string() + ":\\n" + identifier;
+  std::string str = to_string() + ":\\n" + m_identifier;
   Node::graph_gen(parent_id, this, str, connection, "tomato2", out);
   DeclarationNode::graph_gen_type(out);
 
-  for (size_t i = 0; i < params.size(); ++i) {
-    params[i]->graph_gen(this, std::string("arg ") + std::to_string(i), out);
+  for (size_t i = 0; i < m_params.size(); ++i) {
+    m_params[i]->graph_gen(this, std::string("arg ") + std::to_string(i), out);
   }
 
-  if (body != nullptr) {
-    body->graph_gen(this, "body", out);
+  if (m_body != nullptr) {
+    m_body->graph_gen(this, "body", out);
   }
 }
 
-void Parser::ArrayDeclaration::graph_gen(const void *parent_id, const std::string &connection,
-                                         std::ostream &out) const {
+void ArrayDeclaration::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   // TODO better graph generation for declaration
-  std::string str = to_string() + " " + identifier;
+  std::string str = to_string() + " " + m_identifier;
   Node::graph_gen(parent_id, this, str, connection, "tomato2", out);
   DeclarationNode::graph_gen_type(out);
 
-  if (initializer != nullptr) {
-    initializer->graph_gen(this, "initial value", out);
+  if (m_initializer != nullptr) {
+    m_initializer->graph_gen(this, "initial value", out);
   }
-  if (size != nullptr) {
-    size->graph_gen(this, "size", out);
+  if (m_size != nullptr) {
+    m_size->graph_gen(this, "size", out);
   }
 }
 
-void Parser::TranslationUnit::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
-  // TODO better graph generation for declaration
+void TranslationUnit::graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const {
   Node::graph_gen(parent_id, this, to_string(), connection, "grey", out);
 
-  for (size_t i = 0; i < program.size(); ++i) {
-    program[i]->graph_gen(this, std::to_string(i), out);
+  for (size_t i = 0; i < m_program.size(); ++i) {
+    m_program[i]->graph_gen(this, std::to_string(i), out);
   }
 }
 

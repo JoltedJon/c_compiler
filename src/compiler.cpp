@@ -4,6 +4,7 @@
 
 #include "lexer.hpp"
 #include "parser.hpp"
+#include "semantics.hpp"
 
 namespace JCC {
 
@@ -15,11 +16,32 @@ void Compiler::compile(std::string filename) {
   }
 
   Parser p(lex);
+  UniqueNode program = p.parse();
 
-  Parser::UniqueNode program = p.parse();
-  if (!p.had_error()) {
-    p.graph_gen(std::cout, program.get());
+  SemanticContext::base_types = p.get_base_types();
+
+  program->find_labels(nullptr);
+  if (SemanticContext::has_error) {
+    return;
   }
+
+  program->resolve_identifiers(nullptr);
+  if (SemanticContext::has_error) {
+    return;
+  }
+
+  program->resolve_types();
+  if (SemanticContext::has_error) {
+    return;
+  }
+
+  p.graph_gen(std::cout, program.get());
+  program->constant_fold();
+  if (SemanticContext::has_error) {
+    return;
+  }
+
+  p.graph_gen(std::cout, program.get());
 }
 
 }  // namespace JCC

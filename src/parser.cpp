@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "ansi_colors.hpp"
+#include "ast.hpp"
 #include "lexer.hpp"
 
 namespace JCC {
@@ -63,11 +64,8 @@ Parser::Parser(Lexer &lex) {
   register_base_type("unsigned long", DataType::TypeKind::TYPE_INT, false, 8);
   register_base_type("signed long", DataType::TypeKind::TYPE_INT, true, 8);
 
-  register_base_type("unsigned float", DataType::TypeKind::TYPE_FLOAT, false, 4);
-  register_base_type("signed float", DataType::TypeKind::TYPE_FLOAT, true, 4);
-
-  register_base_type("unsigned double", DataType::TypeKind::TYPE_FLOAT, false, 8);
-  register_base_type("signed double", DataType::TypeKind::TYPE_FLOAT, true, 8);
+  register_base_type("float", DataType::TypeKind::TYPE_FLOAT, true, 4);
+  register_base_type("double", DataType::TypeKind::TYPE_FLOAT, true, 8);
 
   register_base_type("void", DataType::TypeKind::TYPE_VOID, false, 0);
 
@@ -80,7 +78,7 @@ Parser::Parser(Lexer &lex) {
   register_base_type("unresolved type", DataType::TypeKind::TYPE_UNRESOLVED, false, 0);
 }
 
-Parser::UniqueNode Parser::parse() {
+UniqueNode Parser::parse() {
   std::vector<UniqueDeclaration> program;
 
   while (!is_at_end()) {
@@ -91,7 +89,7 @@ Parser::UniqueNode Parser::parse() {
   }
 
   TranslationUnit *unit = alloc_node<TranslationUnit>();
-  unit->program = std::move(program);
+  unit->m_program = std::move(program);
 
   return UniqueNode(unit);
 }
@@ -100,130 +98,130 @@ Parser::ParseRule *Parser::get_rule(Token::Type p_token_type) {
   static ParseRule rules[] = {
       // prefix   infix   precedence
       // Punctuation
-      {&Parser::parse_grouping, &Parser::parse_call, PREC_CALL},  //     LEFT_PAREN
-      {nullptr, nullptr, PREC_NONE},                              //     RIGHT_PAREN
-      {nullptr, nullptr, PREC_NONE},                              //     LEFT_BRACE {
-      {nullptr, nullptr, PREC_NONE},                              //     RIGHT_BRACE }
-      {nullptr, &Parser::parse_subscript, PREC_CALL},             //     LEFT_BRACKET [
-      {nullptr, nullptr, PREC_NONE},                              //     RIGHT_BRACKET ]
-      {nullptr, &Parser::parse_member_access, PREC_CALL},         //     DOT
-      {nullptr, &Parser::parse_member_access, PREC_CALL},         //     ARROW
-      {nullptr, nullptr, PREC_NONE},                              //     SEMICOLON
+      {&Parser::parse_grouping, &Parser::parse_call, Precedence::PREC_CALL},  //     LEFT_PAREN
+      {nullptr, nullptr, Precedence::PREC_NONE},                              //     RIGHT_PAREN
+      {nullptr, nullptr, Precedence::PREC_NONE},                              //     LEFT_BRACE {
+      {nullptr, nullptr, Precedence::PREC_NONE},                              //     RIGHT_BRACE }
+      {nullptr, &Parser::parse_subscript, Precedence::PREC_CALL},             //     LEFT_BRACKET [
+      {nullptr, nullptr, Precedence::PREC_NONE},                              //     RIGHT_BRACKET ]
+      {nullptr, &Parser::parse_member_access, Precedence::PREC_CALL},         //     DOT
+      {nullptr, &Parser::parse_member_access, Precedence::PREC_CALL},         //     ARROW
+      {nullptr, nullptr, Precedence::PREC_NONE},                              //     SEMICOLON
 
-      {&Parser::parse_unary_operation, nullptr, PREC_UNARY},                             //     TILDE
-      {&Parser::parse_unary_operation, nullptr, PREC_UNARY},                             //     BANG
-      {&Parser::parse_unary_operation, &Parser::parse_binary_operation, PREC_ADDITION},  //     PLUS
-      {&Parser::parse_unary_operation, &Parser::parse_postfix, PREC_CALL},               //     PLUS_PLUS
-      {&Parser::parse_unary_operation, &Parser::parse_binary_operation, PREC_ADDITION},  //     MINUS
-      {&Parser::parse_unary_operation, &Parser::parse_postfix, PREC_CALL},               //     MINUS_MINUS
-      {&Parser::parse_unary_operation, &Parser::parse_binary_operation, PREC_FACTOR},    //     STAR
-      {nullptr, &Parser::parse_binary_operation, PREC_FACTOR},                           //     SLASH
-      {nullptr, &Parser::parse_binary_operation, PREC_FACTOR},                           //     PERCENT
+      {&Parser::parse_unary_operation, nullptr, Precedence::PREC_UNARY},                             //     TILDE
+      {&Parser::parse_unary_operation, nullptr, Precedence::PREC_UNARY},                             //     BANG
+      {&Parser::parse_unary_operation, &Parser::parse_binary_operation, Precedence::PREC_ADDITION},  //     PLUS
+      {&Parser::parse_unary_operation, &Parser::parse_postfix, Precedence::PREC_CALL},               //     PLUS_PLUS
+      {&Parser::parse_unary_operation, &Parser::parse_binary_operation, Precedence::PREC_ADDITION},  //     MINUS
+      {&Parser::parse_unary_operation, &Parser::parse_postfix, Precedence::PREC_CALL},               //     MINUS_MINUS
+      {&Parser::parse_unary_operation, &Parser::parse_binary_operation, Precedence::PREC_FACTOR},    //     STAR
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_FACTOR},                           //     SLASH
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_FACTOR},                           //     PERCENT
 
       // Equality
-      {nullptr, &Parser::parse_binary_operation, PREC_EQUALITY},  //     BANG_EQUAL
-      {nullptr, &Parser::parse_binary_operation, PREC_EQUALITY},  //     EQUAL_EQUAL
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_EQUALITY},  //     BANG_EQUAL
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_EQUALITY},  //     EQUAL_EQUAL
 
       // Comparision
-      {nullptr, &Parser::parse_binary_operation, PREC_RELATIONAL},  //     GREATER
-      {nullptr, &Parser::parse_binary_operation, PREC_RELATIONAL},  //     GREATER_EQUAL
-      {nullptr, &Parser::parse_binary_operation, PREC_RELATIONAL},  //     LESS
-      {nullptr, &Parser::parse_binary_operation, PREC_RELATIONAL},  //     LESS_EQUAL
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_RELATIONAL},  //     GREATER
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_RELATIONAL},  //     GREATER_EQUAL
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_RELATIONAL},  //     LESS
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_RELATIONAL},  //     LESS_EQUAL
 
       // Bitwise
-      {nullptr, &Parser::parse_binary_operation, PREC_BIT_SHIFT},  //     SHIFT_RIGHT
-      {nullptr, &Parser::parse_binary_operation, PREC_BIT_SHIFT},  //     SHIFT_LEFT
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_BIT_SHIFT},  //     SHIFT_RIGHT
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_BIT_SHIFT},  //     SHIFT_LEFT
 
       // Logic and Bitwise
-      {&Parser::parse_unary_operation, &Parser::parse_binary_operation, PREC_BIT_AND},  //     AMPERSAND
-      {nullptr, &Parser::parse_binary_operation, PREC_BIT_XOR},                         //     CARET
-      {nullptr, &Parser::parse_binary_operation, PREC_BIT_OR},                          //     PIPE
-      {nullptr, &Parser::parse_binary_operation, PREC_LOGIC_AND},                       //     AMPERSAND_AMPERSAND
-      {nullptr, &Parser::parse_binary_operation, PREC_LOGIC_OR},                        //     PIPE_PIPE
+      {&Parser::parse_unary_operation, &Parser::parse_binary_operation, Precedence::PREC_BIT_AND},  //     AMPERSAND
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_BIT_XOR},                         //     CARET
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_BIT_OR},                          //     PIPE
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_LOGIC_AND},  //     AMPERSAND_AMPERSAND
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_LOGIC_OR},   //     PIPE_PIPE
 
       // Ternary
-      {nullptr, nullptr, PREC_TERNARY},                          //     COLON
-      {nullptr, &Parser::parse_ternary_operator, PREC_TERNARY},  //     QUESTION
+      {nullptr, nullptr, Precedence::PREC_TERNARY},                          //     COLON
+      {nullptr, &Parser::parse_ternary_operator, Precedence::PREC_TERNARY},  //     QUESTION
 
       // Assignment
-      {nullptr, &Parser::parse_binary_operation, PREC_ASSIGNMENT},  //     EQUAL
-      {nullptr, &Parser::parse_binary_operation, PREC_ASSIGNMENT},  //     PLUS_EQUAL
-      {nullptr, &Parser::parse_binary_operation, PREC_ASSIGNMENT},  //     MINUS_EQUAL
-      {nullptr, &Parser::parse_binary_operation, PREC_ASSIGNMENT},  //     STAR_EQUAL
-      {nullptr, &Parser::parse_binary_operation, PREC_ASSIGNMENT},  //     SLASH_EQUAL
-      {nullptr, &Parser::parse_binary_operation, PREC_ASSIGNMENT},  //     PERCENT_EQUAL
-      {nullptr, &Parser::parse_binary_operation, PREC_ASSIGNMENT},  //     AMPERSAND_EQUAL
-      {nullptr, &Parser::parse_binary_operation, PREC_ASSIGNMENT},  //     PIPE_EQUAL
-      {nullptr, &Parser::parse_binary_operation, PREC_ASSIGNMENT},  //     CARET_EQUAL
-      {nullptr, &Parser::parse_binary_operation, PREC_ASSIGNMENT},  //     SHIFT_RIGHT_EQUAL
-      {nullptr, &Parser::parse_binary_operation, PREC_ASSIGNMENT},  //     SHIFT_LEFT_EQUAL
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     EQUAL
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     PLUS_EQUAL
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     MINUS_EQUAL
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     STAR_EQUAL
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     SLASH_EQUAL
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     PERCENT_EQUAL
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     AMPERSAND_EQUAL
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     PIPE_EQUAL
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     CARET_EQUAL
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     SHIFT_RIGHT_EQUAL
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     SHIFT_LEFT_EQUAL
 
       // Comma
-      {nullptr, nullptr, PREC_COMMA},  //     COMMA
+      {nullptr, nullptr, Precedence::PREC_COMMA},  //     COMMA
 
       // Literals
-      {&Parser::parse_identifier, nullptr, PREC_NONE},  //     IDENTIFIER
-      {&Parser::parse_literal, nullptr, PREC_NONE},     //     STRING_LITERAL
-      {&Parser::parse_literal, nullptr, PREC_NONE},     //     NUMBER_LITERAL
-      {&Parser::parse_literal, nullptr, PREC_NONE},     //     FLOAT_LITERAL
+      {&Parser::parse_identifier, nullptr, Precedence::PREC_NONE},  //     IDENTIFIER
+      {&Parser::parse_literal, nullptr, Precedence::PREC_NONE},     //     STRING_LITERAL
+      {&Parser::parse_literal, nullptr, Precedence::PREC_NONE},     //     NUMBER_LITERAL
+      {&Parser::parse_literal, nullptr, Precedence::PREC_NONE},     //     FLOAT_LITERAL
 
       // Keywords
-      {nullptr, nullptr, PREC_NONE},                         //     AUTO
-      {nullptr, nullptr, PREC_NONE},                         //     BREAK
-      {nullptr, nullptr, PREC_NONE},                         //     CASE
-      {nullptr, nullptr, PREC_NONE},                         //     CHAR
-      {nullptr, nullptr, PREC_NONE},                         //     CONST
-      {nullptr, nullptr, PREC_NONE},                         //     CONTINUE
-      {nullptr, nullptr, PREC_NONE},                         //     DEFAULT
-      {nullptr, nullptr, PREC_NONE},                         //     DO
-      {nullptr, nullptr, PREC_NONE},                         //     DOUBLE
-      {nullptr, nullptr, PREC_NONE},                         //     ELSE
-      {nullptr, nullptr, PREC_NONE},                         //     ENUM
-      {nullptr, nullptr, PREC_NONE},                         //     EXTERN
-      {nullptr, nullptr, PREC_NONE},                         //     FLOAT
-      {nullptr, nullptr, PREC_NONE},                         //     FOR
-      {nullptr, nullptr, PREC_NONE},                         //     GOTO
-      {nullptr, nullptr, PREC_NONE},                         //     IF
-      {nullptr, nullptr, PREC_NONE},                         //     INLINE
-      {nullptr, nullptr, PREC_NONE},                         //     INT
-      {nullptr, nullptr, PREC_NONE},                         //     LONG
-      {nullptr, nullptr, PREC_NONE},                         //     RETURN
-      {nullptr, nullptr, PREC_NONE},                         //     SHORT
-      {nullptr, nullptr, PREC_NONE},                         //     SIGNED
-      {&Parser::parse_unary_operation, nullptr, PREC_NONE},  //     SIZEOF
-      {nullptr, nullptr, PREC_NONE},                         //     STATIC
-      {nullptr, nullptr, PREC_NONE},                         //     STRUCT
-      {nullptr, nullptr, PREC_NONE},                         //     SWITCH
-      {nullptr, nullptr, PREC_NONE},                         //     TYPEDEF
-      {nullptr, nullptr, PREC_NONE},                         //     UNION
-      {nullptr, nullptr, PREC_NONE},                         //     UNSIGNED
-      {nullptr, nullptr, PREC_NONE},                         //     VOID
-      {nullptr, nullptr, PREC_NONE},                         //     VOLATILE
-      {nullptr, nullptr, PREC_NONE},                         //     WHILE
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     AUTO
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     BREAK
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     CASE
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     CHAR
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     CONST
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     CONTINUE
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     DEFAULT
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     DO
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     DOUBLE
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     ELSE
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     ENUM
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     EXTERN
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     FLOAT
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     FOR
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     GOTO
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     IF
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     INLINE
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     INT
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     LONG
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     RETURN
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     SHORT
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     SIGNED
+      {&Parser::parse_unary_operation, nullptr, Precedence::PREC_NONE},  //     SIZEOF
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     STATIC
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     STRUCT
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     SWITCH
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     TYPEDEF
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     UNION
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     UNSIGNED
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     VOID
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     VOLATILE
+      {nullptr, nullptr, Precedence::PREC_NONE},                         //     WHILE
 
       // Macros
-      {nullptr, nullptr, PREC_NONE},  //     NEWLINE
-      {nullptr, nullptr, PREC_NONE},  //     DEFINE
-      {nullptr, nullptr, PREC_NONE},  //     UNDEFINE
-      {nullptr, nullptr, PREC_NONE},  //     IF_DEFINED
-      {nullptr, nullptr, PREC_NONE},  //     IF_NOT_DEFINED
-      {nullptr, nullptr, PREC_NONE},  //     END_IF
-      {nullptr, nullptr, PREC_NONE},  //     ELLIPSIS,
-      {nullptr, nullptr, PREC_NONE},  //     INCLUDE
-      {nullptr, nullptr, PREC_NONE},  //     ERROR
+      {nullptr, nullptr, Precedence::PREC_NONE},  //     NEWLINE
+      {nullptr, nullptr, Precedence::PREC_NONE},  //     DEFINE
+      {nullptr, nullptr, Precedence::PREC_NONE},  //     UNDEFINE
+      {nullptr, nullptr, Precedence::PREC_NONE},  //     IF_DEFINED
+      {nullptr, nullptr, Precedence::PREC_NONE},  //     IF_NOT_DEFINED
+      {nullptr, nullptr, Precedence::PREC_NONE},  //     END_IF
+      {nullptr, nullptr, Precedence::PREC_NONE},  //     ELLIPSIS,
+      {nullptr, nullptr, Precedence::PREC_NONE},  //     INCLUDE
+      {nullptr, nullptr, Precedence::PREC_NONE},  //     ERROR
 
-      {nullptr, nullptr, PREC_NONE},  //     TYPEDEF_NAME
+      {nullptr, nullptr, Precedence::PREC_NONE},  //     TYPEDEF_NAME
   };
 
   static_assert(sizeof(rules) / sizeof(rules[0]) == static_cast<int>(Token::Type::EOFF),
-                "Amount of parse rules don't match the amount of token types.");
+                "Amount of parse rules does not match the amount of token types.");
 
   return &rules[p_token_type];
 }
 
-Parser::UniqueExpression Parser::parse_expression() { return parse_precedence(PREC_COMMA); }
+UniqueExpression Parser::parse_expression() { return parse_precedence(Precedence::PREC_COMMA); }
 
-Parser::UniqueExpression Parser::parse_precedence(Parser::Precedence p_precedence) {
+UniqueExpression Parser::parse_precedence(Parser::Precedence p_precedence) {
   Token token = m_current_tok;
   Token::Type type = token.m_type;
 
@@ -251,68 +249,82 @@ Parser::UniqueExpression Parser::parse_precedence(Parser::Precedence p_precedenc
   return previous_operand;
 }
 
-Parser::UniqueExpression Parser::parse_grouping(Parser::UniqueExpression p_previous_operand) {
-  // TODO Cast Expressions
-  // Requires knowing types
+UniqueExpression Parser::parse_grouping(UniqueExpression p_previous_operand) {
+  if (is_declaration_start()) {
+    // TODO cast cannot have storage class spec but parse_declaration_specifier will parse it anyways
+    DeclarationNode::StorageClassSpec p_spec;
+    SharedDataType cast_type = parse_declaration_specifiers(p_spec);
+
+    consume(Token::Type::CLOSE_PAREN, R"-(Expected ")".)-");
+    UniqueExpression expr = parse_expression();
+
+    if (expr == nullptr) {
+      error("expected expression");
+      return nullptr;
+    }
+
+    UnaryOpNode *cast_expr = alloc_node<UnaryOpNode>();
+    cast_expr->m_data_type = std::move(cast_type);
+    cast_expr->m_operand = std::move(expr);
+    cast_expr->m_operation = UnaryOpNode::OpType::OP_CAST;
+
+    return UniqueExpression(cast_expr);
+  }
 
   UniqueExpression expr = parse_expression();
 
   consume(Token::Type::CLOSE_PAREN, R"-(Expected ")".)-");
 
-  if (expr->d_type == nullptr) {
-    expr->d_type = get_type("unresolved type");
-  }
-
   return expr;
 }
 
-Parser::UniqueExpression Parser::parse_call(Parser::UniqueExpression p_previous_operand) {
+UniqueExpression Parser::parse_call(UniqueExpression p_previous_operand) {
   CallNode *call = alloc_node<CallNode>();
 
-  call->callee = std::move(p_previous_operand);
+  call->m_callee = std::move(p_previous_operand);
 
-  if (call->callee == nullptr) {
+  if (call->m_callee == nullptr) {
     error("Expected Expression on call.");
   }
-  else if (call->callee->node_type == Node::NodeType::IDENTIFIER) {
-    call->name = dynamic_cast<IdentifierNode &>(*call->callee).name;
+  else if (call->m_callee->m_node_type == Node::NodeType::IDENTIFIER) {
+    call->m_name = dynamic_cast<IdentifierNode &>(*call->m_callee).m_name;
   }
 
   do {
     if (check(Token::Type::CLOSE_PAREN)) {
       break;
     }
-    UniqueExpression argument = parse_precedence(PREC_ASSIGNMENT);
+    UniqueExpression argument = parse_precedence(Precedence::PREC_ASSIGNMENT);
 
     if (argument == nullptr) {
       error("Expected Expression as function argument.");
     }
     else {
-      call->args.push_back(std::move(argument));
+      call->m_args.push_back(std::move(argument));
     }
   } while (match(Token::Type::COMMA));
 
   consume(Token::Type::CLOSE_PAREN, R"*(Expected closing ")" after function call arguments.)*");
 
-  call->d_type = get_type("unresolved type");
+  call->m_data_type = get_type("unresolved type");
 
   return UniqueExpression(call);
 }
 
-Parser::UniqueExpression Parser::parse_subscript(Parser::UniqueExpression p_previous_operand) {
+UniqueExpression Parser::parse_subscript(UniqueExpression p_previous_operand) {
   BinaryOpNode *operation = alloc_node<BinaryOpNode>();
-  operation->operation = BinaryOpNode::OpType::OP_ARRAY_SUBSCRIPT;
-  operation->left_operand = std::move(p_previous_operand);
-  operation->right_operand = parse_expression();
+  operation->m_operation = BinaryOpNode::OpType::OP_ARRAY_SUBSCRIPT;
+  operation->m_left_operand = std::move(p_previous_operand);
+  operation->m_right_operand = parse_expression();
 
   consume(Token::Type::CLOSE_SQUARE_BRACKET, R"(Expected "]" after array subscript expression.)");
 
-  operation->d_type = get_type("unresolved type");
+  operation->m_data_type = get_type("unresolved type");
 
   return UniqueExpression(operation);
 }
 
-Parser::UniqueExpression Parser::parse_binary_operation(Parser::UniqueExpression p_previous_operand) {
+UniqueExpression Parser::parse_binary_operation(UniqueExpression p_previous_operand) {
   static std::unordered_map<Token::Type, BinaryOpNode::OpType> binaryOps = {
       {Token::Type::PLUS, BinaryOpNode::OpType::OP_ADDITION},
       {Token::Type::MINUS, BinaryOpNode::OpType::OP_SUBTRACTION},
@@ -347,232 +359,239 @@ Parser::UniqueExpression Parser::parse_binary_operation(Parser::UniqueExpression
   Token op = m_previous_tok;
   BinaryOpNode *operation = alloc_node<BinaryOpNode>();
 
-  Precedence precedence = (Precedence)(get_rule(op.m_type)->precedence);
-  operation->left_operand = std::move(p_previous_operand);
-  operation->right_operand = parse_precedence(precedence);
+  // TODO Ensure Associativity is correct
+  // Right to Left:
+  // = += -= *= /= %= <<= >>= &= ^= |=
+  Precedence precedence = (Precedence)(get_rule(op.m_type)->precedence + 1);
+  operation->m_left_operand = std::move(p_previous_operand);
+  operation->m_right_operand = parse_precedence(precedence);
 
-  if (operation->right_operand == nullptr) {
+  if (operation->m_right_operand == nullptr) {
     error(std::format(R"(Expected expression after "{}" operator.)", op.get_type_string()));
   }
 
   auto it = binaryOps.find(op.m_type);
 
-  [[unlikely]]
   if (it == binaryOps.end()) {
     fatal_error(std::format("Unexpected Token: {}", op.get_type_string()));
   }
 
-  operation->operation = it->second;
-  operation->d_type = get_type("unresolved type");
+  operation->m_operation = it->second;
+  operation->m_data_type = get_type("unresolved type");
 
   return UniqueExpression(operation);
 }
 
-Parser::UniqueExpression Parser::parse_unary_operation(Parser::UniqueExpression p_previous_operand) {
+UniqueExpression Parser::parse_unary_operation(UniqueExpression p_previous_operand) {
   Token::Type op_type = m_previous_tok.m_type;
   UnaryOpNode *operation = alloc_node<UnaryOpNode>();
-  operation->operand = parse_precedence(PREC_UNARY);
+  operation->m_operand = parse_precedence(Precedence::PREC_UNARY);
 
   switch (op_type) {
     case Token::Type::PLUS:
-      operation->operation = UnaryOpNode::OpType::OP_POSITIVE;
-      if (!operation->operand) {
+      operation->m_operation = UnaryOpNode::OpType::OP_POSITIVE;
+      if (!operation->m_operand) {
         error(R"(Expected expression after "+" operator.)");
       }
       break;
     case Token::Type::MINUS:
-      operation->operation = UnaryOpNode::OpType::OP_POSITIVE;
-      if (!operation->operand) {
+      operation->m_operation = UnaryOpNode::OpType::OP_POSITIVE;
+      if (!operation->m_operand) {
         error(R"(Expected expression after "-" operator.)");
       }
       break;
     case Token::Type::PLUS_PLUS:
-      operation->operation = UnaryOpNode::OpType::OP_POSITIVE;
-      if (!operation->operand) {
+      operation->m_operation = UnaryOpNode::OpType::OP_POSITIVE;
+      if (!operation->m_operand) {
         error(R"(Expected expression after "++" operator.)");
       }
       break;
     case Token::Type::MINUS_MINUS:
-      operation->operation = UnaryOpNode::OpType::OP_POSITIVE;
-      if (!operation->operand) {
+      operation->m_operation = UnaryOpNode::OpType::OP_POSITIVE;
+      if (!operation->m_operand) {
         error(R"(Expected expression after "--" operator.)");
       }
       break;
     case Token::Type::BANG:
-      operation->operation = UnaryOpNode::OpType::OP_LOGIC_NOT;
-      if (!operation->operand) {
+      operation->m_operation = UnaryOpNode::OpType::OP_LOGIC_NOT;
+      if (!operation->m_operand) {
         error(R"(Expected expression after "!" operator.)");
       }
       break;
     case Token::Type::TILDE:
-      operation->operation = UnaryOpNode::OpType::OP_LOGIC_NOT;
-      if (!operation->operand) {
+      operation->m_operation = UnaryOpNode::OpType::OP_LOGIC_NOT;
+      if (!operation->m_operand) {
         error(R"(Expected expression after "~" operator.)");
       }
       break;
     case Token::Type::AMPERSAND:
-      operation->operation = UnaryOpNode::OpType::OP_ADDRESS_OF;
-      if (!operation->operand) {
+      operation->m_operation = UnaryOpNode::OpType::OP_ADDRESS_OF;
+      if (!operation->m_operand) {
         error(R"(Expected expression after "&" operator.)");
       }
       break;
     case Token::Type::STAR:
-      operation->operation = UnaryOpNode::OpType::OP_INDIRECTION;
-      if (!operation->operand) {
+      operation->m_operation = UnaryOpNode::OpType::OP_INDIRECTION;
+      if (!operation->m_operand) {
         error(R"(Expected expression after "*" operator.)");
       }
       break;
     case Token::Type::SIZEOF:
-      operation->operation = UnaryOpNode::OpType::OP_SIZEOF;
+      operation->m_operation = UnaryOpNode::OpType::OP_SIZEOF;
       // TODO Parse this expression
       // sizeof ( type-name )
-      if (!operation->operand) {
-        error(R"(Expected expression after "*" operator.)");
-      }
+      // error(R"(Sizeof not yet implemented)");
       break;
     default:
       fatal_error(std::format("Unexpected Token: {}", m_previous_tok.get_type_string()));
   }
 
-  operation->d_type = get_type("unresolved type");
+  operation->m_data_type = get_type("unresolved type");
 
   return UniqueExpression(operation);
 }
 
-Parser::UniqueExpression Parser::parse_ternary_operator(Parser::UniqueExpression p_previous_operand) {
+UniqueExpression Parser::parse_ternary_operator(UniqueExpression p_previous_operand) {
   TernaryOpNode *operation = alloc_node<TernaryOpNode>();
 
-  operation->condition = std::move(p_previous_operand);
-  operation->true_expr = parse_precedence(PREC_TERNARY);
+  operation->m_condition = std::move(p_previous_operand);
+  operation->m_true_expr = parse_precedence(Precedence::PREC_TERNARY);
 
-  if (operation->true_expr == nullptr) {
+  if (operation->m_true_expr == nullptr) {
     error(R"(Expected expression after "?" operator.)");
   }
 
   consume(Token::Type::COLON, R"(Expected ":".)");
 
-  operation->false_expr = parse_precedence(PREC_TERNARY);
+  operation->m_false_expr = parse_precedence(Precedence::PREC_TERNARY);
 
-  if (operation->false_expr == nullptr) {
+  if (operation->m_false_expr == nullptr) {
     error(R"(Expected expression after ":".)");
   }
 
-  operation->d_type = get_type("unresolved type");
+  operation->m_data_type = get_type("unresolved type");
 
   return UniqueExpression(operation);
 }
 
-Parser::UniqueExpression Parser::parse_member_access(Parser::UniqueExpression p_previous_operand) {
+UniqueExpression Parser::parse_member_access(UniqueExpression p_previous_operand) {
   Token op = m_previous_tok;
 
-  BinaryOpNode *operation = alloc_node<BinaryOpNode>();
-  operation->left_operand = std::move(p_previous_operand);
-  operation->right_operand = parse_expression();
+  if (!consume(Token::Type::IDENTIFIER, "Expected Identifier")) {
+    return nullptr;
+  }
+
+  std::string identifier = m_previous_tok.get_val<std::string>();
+
+  MemberAccessNode *operation = alloc_node<MemberAccessNode>();
+  operation->m_expr = std::move(p_previous_operand);
+  operation->m_member = identifier;
 
   switch (op.m_type) {
     case Token::Type::DOT:
-      operation->operation = BinaryOpNode::OpType::OP_DIRECT_MEM_ACCESS;
+      operation->m_access_type = MemberAccessNode::OpType::OP_DIRECT_MEM_ACCESS;
       break;
     case Token::Type::ARROW:
-      operation->operation = BinaryOpNode::OpType::OP_INDIRECT_MEM_ACCESS;
+      operation->m_access_type = MemberAccessNode::OpType::OP_INDIRECT_MEM_ACCESS;
       break;
     default:
       fatal_error(std::format("Unexpected Token: {}", m_previous_tok.get_type_string()));
   }
 
-  if (operation->right_operand->node_type != Node::NodeType::IDENTIFIER) {
-    error("Member access must be an identifier");
-  }
-
-  operation->d_type = get_type("unresolved type");
+  operation->m_data_type = get_type("unresolved type");
 
   return UniqueExpression(operation);
 }
 
-Parser::UniqueExpression Parser::parse_postfix(Parser::UniqueExpression p_previous_operand) {
+UniqueExpression Parser::parse_postfix(UniqueExpression p_previous_operand) {
   Token op = m_previous_tok;
 
   UnaryOpNode *operation = alloc_node<UnaryOpNode>();
-  operation->operand = std::move(p_previous_operand);
+  operation->m_operand = std::move(p_previous_operand);
 
   switch (op.m_type) {
     case Token::Type::PLUS_PLUS:
-      operation->operation = UnaryOpNode::OpType::OP_POST_INCREMENT;
+      operation->m_operation = UnaryOpNode::OpType::OP_POST_INCREMENT;
       break;
     case Token::Type::MINUS_MINUS:
-      operation->operation = UnaryOpNode::OpType::OP_POST_DECREMENT;
+      operation->m_operation = UnaryOpNode::OpType::OP_POST_DECREMENT;
       break;
     default:
       fatal_error(std::format("Unexpected Token: {}", m_previous_tok.get_type_string()));
   }
 
-  operation->d_type = get_type("unresolved type");
+  operation->m_data_type = get_type("unresolved type");
 
   return UniqueExpression(operation);
 }
 
-Parser::UniqueExpression Parser::parse_identifier(Parser::UniqueExpression p_previous_operand) {
+UniqueExpression Parser::parse_identifier(UniqueExpression p_previous_operand) {
   std::optional<int> opt_value = get_enum_val(m_previous_tok.get_val<std::string>());
   if (opt_value.has_value()) {
     ConstantNode *constant = alloc_node<ConstantNode>();
-    constant->value = *opt_value;
-    constant->val_type = ConstantNode::ValType::INTEGER;
-    constant->d_type = get_type("signed int");
+    constant->m_value = *opt_value;
+    constant->m_val_type = ConstantNode::ValType::SIGNED_INTEGER;
+    constant->m_data_type = get_type("signed int");
     return UniqueExpression(constant);
   }
 
   IdentifierNode *ident = alloc_node<IdentifierNode>();
-  ident->name = m_previous_tok.get_val<std::string>();
+  ident->m_name = m_previous_tok.get_val<std::string>();
 
-  if (ident->name == "") {
+  if (ident->m_name == "") {
     error("Identifier name is Empty.");
   }
 
-  ident->d_type = get_type("unresolved type");
+  ident->m_data_type = get_type("unresolved type");
 
   return UniqueExpression(ident);
 }
 
-Parser::UniqueExpression Parser::parse_literal(Parser::UniqueExpression p_previous_operand) {
+UniqueExpression Parser::parse_literal(UniqueExpression p_previous_operand) {
   Token lit = m_previous_tok;
   ConstantNode *constant = alloc_node<ConstantNode>();
-  constant->value = m_previous_tok.m_literal;
+  constant->m_value = m_previous_tok.m_literal;
 
   switch (lit.m_type) {
-    case Token::Type::NUMBER_LITERAL: {
-      constant->val_type = ConstantNode::ValType::INTEGER;
-      uint64_t num = m_previous_tok.get_val<uint64_t>();
-      int bits = std::bit_width(num);
-      if (bits <= 8) {
-        constant->d_type = get_type("unsigned char");
+    case Token::Type::NUMBER_LITERAL:
+      switch (lit.m_num_type) {
+        case Token::NumType::SIGNED_INTEGER:
+          constant->m_val_type = ConstantNode::ValType::SIGNED_INTEGER;
+          constant->m_data_type = get_type("signed int");
+          break;
+        case Token::NumType::UNSIGNED_INTEGER:
+          constant->m_val_type = ConstantNode::ValType::UNSIGNED_INTEGER;
+          constant->m_data_type = get_type("unsigned int");
+          break;
+        case Token::NumType::SIGNED_LONG:
+          constant->m_val_type = ConstantNode::ValType::SIGNED_LONG;
+          constant->m_data_type = get_type("signed long");
+          break;
+        case Token::NumType::UNSIGNED_LONG:
+          constant->m_val_type = ConstantNode::ValType::UNSIGNED_LONG;
+          constant->m_data_type = get_type("unsigned long");
+          break;
+        default:
+          fatal_error(std::format("Unexpected Token: {}", lit.get_type_string()));
       }
-      else if (bits <= 16) {
-        constant->d_type = get_type("unsigned short");
-      }
-      else if (bits <= 32) {
-        constant->d_type = get_type("unsigned int");
-      }
-      else if (bits <= 64) {
-        constant->d_type = get_type("unsigned long");
-      }
-    } break;
+      break;
     case Token::Type::FLOAT_LITERAL:
-      constant->val_type = ConstantNode::ValType::FLOAT;
-      constant->d_type = get_type("unsigned double");
+      constant->m_val_type = ConstantNode::ValType::FLOAT;
+      constant->m_data_type = get_type("double");
       break;
     case Token::Type::STRING_LITERAL:
-      constant->val_type = ConstantNode::ValType::STRING;
-      constant->d_type = get_type("string type");
+      constant->m_val_type = ConstantNode::ValType::STRING;
+      constant->m_data_type = get_type("string type");
       break;
     default:
-      fatal_error(std::format("Unexpected Token: {}", m_previous_tok.get_type_string()));
+      fatal_error(std::format("Unexpected Token: {}", lit.get_type_string()));
   }
 
   return UniqueExpression(constant);
 }
 
 // Statements
-Parser::UniqueStatement Parser::parse_statement() {
+UniqueStatement Parser::parse_statement() {
   Token token = m_current_tok;
   Token::Type type = token.m_type;
 
@@ -606,22 +625,27 @@ Parser::UniqueStatement Parser::parse_statement() {
       advance();
       return parse_switch_statement();
     case Token::Type::GOTO:
-      fatal_error("Not Yet Implemented");
+      advance();
+      return parse_goto_statement();
     case Token::Type::CASE:
-      fatal_error("Not Yet Implemented");
+      advance();
+      return parse_case_statement();
     case Token::Type::DEFAULT:
-      fatal_error("Not Yet Implemented");
-    case Token::Type::IDENTIFIER:
+      advance();
+      return parse_default_statement();
+    case Token::Type::IDENTIFIER: {
+      std::string identifier = token.get_val<std::string>();
       if (match(Token::Type::COLON)) {
-        return parse_label_statement();
+        return parse_label_statement(identifier);
       }
       return parse_expression_statement();
+    }
     default:
       fatal_error(std::format("Unexpected Token: {}", token.get_type_string()));
   }
 }
 
-Parser::UniqueStatement Parser::parse_if_statement() {
+UniqueStatement Parser::parse_if_statement() {
   if (!consume(Token::Type::OPEN_PAREN, R"(Expected "(" after "if")")) {
     return nullptr;
   }
@@ -645,14 +669,14 @@ Parser::UniqueStatement Parser::parse_if_statement() {
   }
 
   IfStmt *stmt = alloc_node<IfStmt>();
-  stmt->condition = std::move(condition);
-  stmt->true_stmt = std::move(true_stmt);
-  stmt->false_stmt = std::move(false_stmt);
+  stmt->m_condition = std::move(condition);
+  stmt->m_true_stmt = std::move(true_stmt);
+  stmt->m_false_stmt = std::move(false_stmt);
 
   return UniqueStatement(stmt);
 }
 
-Parser::UniqueStatement Parser::parse_while_statement() {
+UniqueStatement Parser::parse_while_statement() {
   Token token = m_previous_tok;
   WhileStmt::WhileType while_type;
   UniqueExpression condition = nullptr;
@@ -696,14 +720,14 @@ Parser::UniqueStatement Parser::parse_while_statement() {
   }
 
   WhileStmt *while_statement = alloc_node<WhileStmt>();
-  while_statement->while_type = while_type;
-  while_statement->condition = std::move(condition);
-  while_statement->stmt = std::move(stmt);
+  while_statement->m_while_type = while_type;
+  while_statement->m_condition = std::move(condition);
+  while_statement->m_stmt = std::move(stmt);
 
   return UniqueStatement(while_statement);
 }
 
-Parser::UniqueStatement Parser::parse_for_statement() {
+UniqueStatement Parser::parse_for_statement() {
   if (!consume(Token::Type::OPEN_PAREN, R"(Expected "(" after "for")")) {
     return nullptr;
   }
@@ -711,6 +735,16 @@ Parser::UniqueStatement Parser::parse_for_statement() {
   UniqueNode init_clause = parse_decl_stmt();
 
   UniqueExpression condition = parse_expression();
+
+  // No condition passed means condition is to be treated as constant non-zero integer
+  if (condition == nullptr) {
+    ConstantNode *constant = alloc_node<ConstantNode>();
+    constant->m_value = static_cast<int32_t>(1);
+    constant->m_val_type = ConstantNode::ValType::SIGNED_INTEGER;
+    constant->m_data_type = get_type("signed int");
+    condition = UniqueExpression(constant);
+  }
+
   if (!consume(Token::Type::SEMICOLON, R"(Expected ";")")) {
     return nullptr;
   }
@@ -721,18 +755,18 @@ Parser::UniqueStatement Parser::parse_for_statement() {
   }
 
   ForStmt *for_statement = alloc_node<ForStmt>();
-  for_statement->init_clause = std::move(init_clause);
-  for_statement->condition = std::move(condition);
-  for_statement->iteration = std::move(iteration);
+  for_statement->m_init_clause = std::move(init_clause);
+  for_statement->m_condition = std::move(condition);
+  for_statement->m_iteration = std::move(iteration);
 
   push_type_context();
-  for_statement->stmt = parse_statement();
+  for_statement->m_stmt = parse_statement();
   pop_type_context();
 
   return UniqueStatement(for_statement);
 }
 
-Parser::UniqueStatement Parser::parse_switch_statement() {
+UniqueStatement Parser::parse_switch_statement() {
   if (!consume(Token::Type::OPEN_PAREN, R"(Expected "(" after "switch")")) {
     return nullptr;
   }
@@ -748,13 +782,13 @@ Parser::UniqueStatement Parser::parse_switch_statement() {
   }
 
   SwitchStmt *stmt = alloc_node<SwitchStmt>();
-  stmt->expr = std::move(expr);
-  stmt->stmt = parse_statement();
+  stmt->m_expr = std::move(expr);
+  stmt->m_stmt = parse_statement();
 
   return UniqueStatement(stmt);
 }
 
-Parser::UniqueStatement Parser::parse_return_statement() {
+UniqueStatement Parser::parse_return_statement() {
   UniqueExpression expr = parse_expression();
 
   if (!consume(Token::Type::SEMICOLON, R"(Expected ";")")) {
@@ -762,34 +796,73 @@ Parser::UniqueStatement Parser::parse_return_statement() {
   }
 
   ReturnStmt *stmt = alloc_node<ReturnStmt>();
-  stmt->return_value = std::move(expr);
+  stmt->m_return_value = std::move(expr);
 
   return UniqueStatement(stmt);
 }
 
-Parser::UniqueStatement Parser::parse_label_statement() {
-  fatal_error("Not Yet Implemented");
-  return nullptr;
+UniqueStatement Parser::parse_label_statement(const std::string &p_label) {
+  LabelStmt *stmt = alloc_node<LabelStmt>();
+  stmt->m_label = p_label;
+  return UniqueStatement(stmt);
 }
 
-Parser::UniqueStatement Parser::parse_control_statement() {
+UniqueStatement Parser::parse_goto_statement() {
+  if (!consume(Token::Type::IDENTIFIER, "Expected identifier")) {
+    return nullptr;
+  }
+
+  std::string identifier = m_previous_tok.get_val<std::string>();
+
+  if (!consume(Token::Type::SEMICOLON, R"(Expected ";" after goto statement)")) {
+    return nullptr;
+  }
+
+  GotoStmt *stmt = alloc_node<GotoStmt>();
+  stmt->m_label = std::move(identifier);
+
+  return UniqueStatement(stmt);
+}
+
+UniqueStatement Parser::parse_case_statement() {
+  UniqueExpression expr = parse_precedence(Precedence::PREC_TERNARY);
+
+  if (!consume(Token::Type::COLON, R"(Expected ":" after case statement)")) {
+    return nullptr;
+  }
+
+  CaseStmt *stmt = alloc_node<CaseStmt>();
+  stmt->m_expr = std::move(expr);
+
+  return UniqueStatement(stmt);
+}
+
+UniqueStatement Parser::parse_default_statement() {
+  if (!consume(Token::Type::COLON, R"(Expected ":" after default statement)")) {
+    return nullptr;
+  }
+
+  return UniqueStatement(alloc_node<DefaultStmt>());
+}
+
+UniqueStatement Parser::parse_control_statement() {
   ControlStmt *stmt = alloc_node<ControlStmt>();
-  stmt->control = m_previous_tok.m_type == Token::Type::BREAK ? ControlStmt::ControlType::BREAK
-                                                              : ControlStmt::ControlType::CONTINUE;
+  stmt->m_control = m_previous_tok.m_type == Token::Type::BREAK ? ControlStmt::ControlType::BREAK
+                                                                : ControlStmt::ControlType::CONTINUE;
 
   return UniqueStatement(stmt);
 }
 
-Parser::UniqueStatement Parser::parse_expression_statement() {
+UniqueStatement Parser::parse_expression_statement() {
   ExpressionStmt *stmt = alloc_node<ExpressionStmt>();
-  stmt->expr = parse_expression();
+  stmt->m_expr = parse_expression();
 
   consume(Token::Type::SEMICOLON, R"(Expected ";" after expression)");
 
   return UniqueStatement(stmt);
 }
 
-Parser::UniqueStatement Parser::parse_compound_statement() {
+UniqueStatement Parser::parse_compound_statement() {
   UniqueNode node = parse_decl_stmt();
 
   CompoundStmt *compound_statement = alloc_node<CompoundStmt>();
@@ -798,7 +871,7 @@ Parser::UniqueStatement Parser::parse_compound_statement() {
     if (m_panic_mode) {
       synchronize();
     }
-    compound_statement->stmts.push_back(std::move(node));
+    compound_statement->m_stmts.push_back(std::move(node));
     node = parse_decl_stmt();
   }
 
@@ -844,7 +917,7 @@ bool Parser::is_declaration_start() {
   }
 }
 
-Parser::UniqueDeclaration Parser::parse_declaration() {
+UniqueDeclaration Parser::parse_declaration() {
   DeclarationNode::StorageClassSpec spec;
   SharedDataType data_type = parse_declaration_specifiers(spec);
   UniqueDeclaration declarator = parse_declarator(data_type);
@@ -863,7 +936,7 @@ Parser::UniqueDeclaration Parser::parse_declaration() {
   return declarator;
 }
 
-Parser::DeclarationNode::StorageClassSpec Parser::get_storage_spec() {
+DeclarationNode::StorageClassSpec Parser::get_storage_spec() {
   Token::Type type = m_current_tok.m_type;
 
   switch (type) {
@@ -886,7 +959,7 @@ Parser::DeclarationNode::StorageClassSpec Parser::get_storage_spec() {
   }
 }
 
-Parser::TypeQualifier Parser::get_type_qualifier() {
+TypeQualifier Parser::get_type_qualifier() {
   Token::Type type = m_current_tok.m_type;
 
   switch (type) {
@@ -930,7 +1003,7 @@ Token Parser::get_type_specifier() {
   }
 }
 
-Parser::SharedDataType Parser::parse_type_specifiers(std::vector<Token> &p_type_specifiers) {
+SharedDataType Parser::parse_type_specifiers(std::vector<Token> &p_type_specifiers) {
   if (p_type_specifiers.empty()) {
     error("Declaration requires type specifier");
     return nullptr;
@@ -1029,9 +1102,8 @@ Parser::SharedDataType Parser::parse_type_specifiers(std::vector<Token> &p_type_
     return nullptr;
   }
 
-  // void, Union, Struct, Enum cannot have sign specifier
-  if (sign != Sign::NONE && base != BaseType::CHAR && base != BaseType::INT && base != BaseType::FLOAT &&
-      base != BaseType::DOUBLE) {
+  // void, Union, Struct, Enum, float, double cannot have sign specifier
+  if (sign != Sign::NONE && base != BaseType::CHAR && base != BaseType::INT) {
     error("Invalid declaration specifier usage");
     return nullptr;
   }
@@ -1050,9 +1122,9 @@ Parser::SharedDataType Parser::parse_type_specifiers(std::vector<Token> &p_type_
       }
       return get_type(sign_name + "int");
     case BaseType::FLOAT:
-      return get_type(sign_name + "float");
+      return get_type("float");
     case BaseType::DOUBLE:
-      return get_type(sign_name + "double");
+      return get_type("double");
     case BaseType::VOID:
       return get_type("void");
     case BaseType::TYPEDEF_NAME:
@@ -1070,8 +1142,8 @@ Parser::SharedDataType Parser::parse_type_specifiers(std::vector<Token> &p_type_
   }
 }
 
-Parser::SharedDataType Parser::parse_struct_union(Parser::DataType::TypeKind p_kind) {
-  std::string kind_name = p_kind == Parser::DataType::TypeKind::TYPE_STRUCT ? "struct " : "union ";
+SharedDataType Parser::parse_struct_union(DataType::TypeKind p_kind) {
+  std::string kind_name = p_kind == DataType::TypeKind::TYPE_STRUCT ? "struct " : "union ";
   std::string struct_name = "";
 
   Token token = advance();
@@ -1120,7 +1192,7 @@ Parser::SharedDataType Parser::parse_struct_union(Parser::DataType::TypeKind p_k
   return shared_struct;
 }
 
-Parser::SharedDataType Parser::parse_enum() {
+SharedDataType Parser::parse_enum() {
   std::string enum_name = "";
 
   Token token = advance();
@@ -1203,7 +1275,7 @@ Parser::SharedDataType Parser::parse_enum() {
   return shared_enum;
 }
 
-Parser::SharedDataType Parser::parse_declaration_specifiers(DeclarationNode::StorageClassSpec &p_spec) {
+SharedDataType Parser::parse_declaration_specifiers(DeclarationNode::StorageClassSpec &p_spec) {
   p_spec = DeclarationNode::StorageClassSpec::NONE;
   std::unordered_set<TypeQualifier> qualifiers;
   std::vector<Token> type_specifiers;
@@ -1274,7 +1346,7 @@ Parser::SharedDataType Parser::parse_declaration_specifiers(DeclarationNode::Sto
   return data_type;
 }
 
-Parser::UniqueDeclaration Parser::parse_declarator(Parser::SharedDataType p_base_type) {
+UniqueDeclaration Parser::parse_declarator(SharedDataType p_base_type) {
   p_base_type = parse_pointer(p_base_type);
 
   // TODO complex declarators
@@ -1305,20 +1377,20 @@ Parser::UniqueDeclaration Parser::parse_declarator(Parser::SharedDataType p_base
 
     VariableDeclaration *decl = alloc_node<VariableDeclaration>();
     decl->m_data_type = p_base_type;
-    decl->initializer = std::move(init);
-    decl->identifier = identifier;
+    decl->m_initializer = std::move(init);
+    decl->m_identifier = identifier;
 
     return UniqueDeclaration(decl);
   }
   else {
     VariableDeclaration *decl = alloc_node<VariableDeclaration>();
     decl->m_data_type = p_base_type;
-    decl->identifier = identifier;
+    decl->m_identifier = identifier;
     return UniqueDeclaration(decl);
   }
 }
 
-Parser::SharedDataType Parser::parse_pointer(Parser::SharedDataType p_base_type) {
+SharedDataType Parser::parse_pointer(SharedDataType p_base_type) {
   while (match(Token::Type::STAR)) {
     std::unordered_set<TypeQualifier> qualifiers;
     TypeQualifier qualifier = get_type_qualifier();
@@ -1336,10 +1408,9 @@ Parser::SharedDataType Parser::parse_pointer(Parser::SharedDataType p_base_type)
   return p_base_type;
 }
 
-Parser::UniqueDeclaration Parser::parse_function(Parser::SharedDataType p_return_type,
-                                                 const std::string &p_identifier) {
+UniqueDeclaration Parser::parse_function(SharedDataType p_return_type, const std::string &p_identifier) {
   std::shared_ptr<FunctionType> function_type = std::make_shared<FunctionType>();
-  function_type->return_type = p_return_type;
+  function_type->m_return_type = p_return_type;
   std::vector<UniqueDeclaration> params;
 
   while (!is_at_end() && !match(Token::Type::CLOSE_PAREN)) {
@@ -1348,7 +1419,7 @@ Parser::UniqueDeclaration Parser::parse_function(Parser::SharedDataType p_return
     UniqueDeclaration param = parse_declarator(data_type);
     param->m_storage_spec = spec;
 
-    function_type->param_types.push_back(param->m_data_type);
+    function_type->m_param_types.push_back(param->m_data_type);
     params.push_back(std::move(param));
 
     if (!check(Token::Type::COMMA) && !check(Token::Type::CLOSE_PAREN)) {
@@ -1366,8 +1437,8 @@ Parser::UniqueDeclaration Parser::parse_function(Parser::SharedDataType p_return
   if (match(Token::Type::SEMICOLON)) {
     FunctionDefinition *decl = alloc_node<FunctionDefinition>();
     decl->m_data_type = function_type;
-    decl->identifier = p_identifier;
-    decl->params = std::move(params);
+    decl->m_identifier = p_identifier;
+    decl->m_params = std::move(params);
 
     return UniqueDeclaration(decl);
   }
@@ -1380,9 +1451,9 @@ Parser::UniqueDeclaration Parser::parse_function(Parser::SharedDataType p_return
 
     FunctionDefinition *decl = alloc_node<FunctionDefinition>();
     decl->m_data_type = function_type;
-    decl->identifier = p_identifier;
-    decl->params = std::move(params);
-    decl->body = std::move(stmt);
+    decl->m_identifier = p_identifier;
+    decl->m_params = std::move(params);
+    decl->m_body = std::move(stmt);
 
     return UniqueDeclaration(decl);
   }
@@ -1390,7 +1461,7 @@ Parser::UniqueDeclaration Parser::parse_function(Parser::SharedDataType p_return
   return nullptr;
 }
 
-Parser::UniqueDeclaration Parser::parse_array(Parser::SharedDataType p_base_type, const std::string &p_identifier) {
+UniqueDeclaration Parser::parse_array(SharedDataType p_base_type, const std::string &p_identifier) {
   UniqueExpression expr = nullptr;
   if (!match(Token::Type::CLOSE_SQUARE_BRACKET)) {
     expr = parse_precedence(Precedence::PREC_ASSIGNMENT);
@@ -1414,16 +1485,16 @@ Parser::UniqueDeclaration Parser::parse_array(Parser::SharedDataType p_base_type
 
   ArrayDeclaration *decl = alloc_node<ArrayDeclaration>();
   decl->m_data_type = SharedDataType(array_type);
-  decl->identifier = p_identifier;
+  decl->m_identifier = p_identifier;
 
-  decl->size = std::move(expr);
+  decl->m_size = std::move(expr);
 
   return UniqueDeclaration(decl);
 }
 
 // Program parsing
 
-Parser::UniqueNode Parser::parse_decl_stmt() {
+UniqueNode Parser::parse_decl_stmt() {
   if (!is_declaration_start()) {
     UniqueStatement stmt = parse_statement();
     return UniqueNode(dynamic_cast<Node *>(stmt.release()));

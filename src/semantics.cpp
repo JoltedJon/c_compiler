@@ -3,79 +3,187 @@
 Split into multiple stages:
   1) Find Labels for Goto statements
   2) Check for use of undeclared identifiers
-  3) Resolve types for expressions
+  3) Resolve types for expressions, Struct/Union validation, Function Call Validation
+  4) Constant Folding
+  5) Lvalue/Rvalue Check
+  6) Control Flow Check (Return in non-void function, break/continue in loop/switch)
 */
 
+#include "semantics.hpp"
+
+#include <cassert>
+#include <cstddef>
 #include <format>
 #include <iostream>
 #include <memory>
+#include <unordered_map>
 
 #include "ansi_colors.hpp"
-#include "parser.hpp"
+#include "ast.hpp"
+#include "src/lexer.hpp"
 
 namespace JCC {
 
-bool Parser::SemanticContext::has_error = false;
+std::unordered_map<std::string, SharedDataType> SemanticContext::base_types;
+bool SemanticContext::has_error = false;
 
-#define fatal_error(p_error_message)                                                                 \
-  do {                                                                                               \
-    std::cerr << ANSI_COLOR_RED << "Fatal Error - Please Report Bug: " << ANSI_COLOR_RESET << "\n\t" \
-              << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n\t" << std::endl;                      \
-    std::abort();                                                                                    \
+// Debug
+std::string stage = "";
+
+#define fatal_error(p_error_message)                                                                                   \
+  do {                                                                                                                 \
+    std::cerr << ANSI_COLOR_RED << "Fatal Error - Please Report Bug: " << ANSI_COLOR_RESET << "\n\t" << stage          \
+              << "\n\t" << __PRETTY_FUNCTION__ << "\n\t" << __FILE__ << ":" << __LINE__ << "\n\t" << (p_error_message) \
+              << std::endl;                                                                                            \
+    std::abort();                                                                                                      \
   } while (0)
 
-void Parser::SemanticContext::error(const Node *node, const std::string &p_error_message) {
+void SemanticContext::error(const Node *node, const std::string &p_error_message) {
   has_error = true;
 
   if (node == nullptr) return;
 
   std::cerr << ANSI_COLOR_RED << "Error: " << ANSI_COLOR_RESET
-            << std::format("{} {}:{}\n{}", node->m_filename, node->m_line, node->m_column_start, p_error_message)
+            << std::format("{} {}:{}\n{}\n", node->m_filename, node->m_line, node->m_column_start, p_error_message)
             << std::endl;
+}
+
+SharedDataType SemanticContext::get_identifier_type(const std::string &p_identifier) {
+  SemanticContext *context = this;
+
+  while (context != nullptr) {
+    auto it = context->identifiers.find(p_identifier);
+
+    if (it != nullptr) {
+      return it->second;
+    }
+
+    context = context->previous_context;
+  }
+
+  return nullptr;
+}
+
+void SemanticContext::push_identifier(const std::string &p_identifier, SharedDataType p_type) {
+  identifiers[p_identifier] = std::move(p_type);
+}
+
+UniqueExpression implicit_cast(UniqueExpression p_castee, SharedDataType p_cast_type) {
+  UnaryOpNode *cast = new UnaryOpNode;
+  cast->m_line = p_castee->m_line;
+  cast->m_column_start = p_castee->m_column_start;
+  cast->m_filename = p_castee->m_filename;
+  cast->m_data_type = std::move(p_cast_type);
+
+  cast->m_operand = std::move(p_castee);
+  cast->m_operation = UnaryOpNode::OpType::OP_CAST;
+
+  return UniqueExpression(cast);
+}
+
+SharedDataType arithmetic_conversion(UniqueExpression &lhs, UniqueExpression &rhs) {
+  if (*lhs->m_data_type == *rhs->m_data_type) return lhs->m_data_type;
+
+  // TODO Refactor this once operator< is tested
+
+  if (*lhs->m_data_type == *SemanticContext::base_types["double"]) {
+    if (!(*lhs->m_data_type < *rhs->m_data_type)) fatal_error("DataType < operator not implemented correctly");
+    rhs = implicit_cast(std::move(rhs), SemanticContext::base_types["double"]);
+    return lhs->m_data_type;
+  }
+  if (*rhs->m_data_type == *SemanticContext::base_types["double"]) {
+    if (!(*rhs->m_data_type < *lhs->m_data_type)) fatal_error("DataType < operator not implemented correctly");
+
+    lhs = implicit_cast(std::move(lhs), SemanticContext::base_types["double"]);
+    return lhs->m_data_type;
+  }
+
+  if (*lhs->m_data_type == *SemanticContext::base_types["float"]) {
+    if (!(*lhs->m_data_type < *rhs->m_data_type)) fatal_error("DataType < operator not implemented correctly");
+
+    rhs = implicit_cast(std::move(rhs), SemanticContext::base_types["float"]);
+    return lhs->m_data_type;
+  }
+  if (*rhs->m_data_type == *SemanticContext::base_types["float"]) {
+    if (!(*rhs->m_data_type < *lhs->m_data_type)) fatal_error("DataType < operator not implemented correctly");
+
+    lhs = implicit_cast(std::move(lhs), SemanticContext::base_types["float"]);
+    return lhs->m_data_type;
+  }
+
+  if (*lhs->m_data_type == *SemanticContext::base_types["unsigned int"]) {
+    if (!(*lhs->m_data_type < *rhs->m_data_type)) fatal_error("DataType < operator not implemented correctly");
+
+    rhs = implicit_cast(std::move(lhs), SemanticContext::base_types["unsigned int"]);
+    return lhs->m_data_type;
+  }
+  if (*rhs->m_data_type == *SemanticContext::base_types["unsigned int"]) {
+    if (!(*rhs->m_data_type < *lhs->m_data_type)) fatal_error("DataType < operator not implemented correctly");
+
+    lhs = implicit_cast(std::move(lhs), SemanticContext::base_types["unsigned int"]);
+    return lhs->m_data_type;
+  }
+
+  if (*lhs->m_data_type == *SemanticContext::base_types["signed int"]) {
+    if (!(*lhs->m_data_type < *rhs->m_data_type)) {
+      std::cerr << lhs->m_data_type->to_string() << " <-> " << rhs->m_data_type->to_string() << std::endl;
+      fatal_error("DataType < operator not implemented correctly");
+    }
+
+    rhs = implicit_cast(std::move(lhs), SemanticContext::base_types["signed int"]);
+    return lhs->m_data_type;
+  }
+  if (*rhs->m_data_type == *SemanticContext::base_types["signed int"]) {
+    if (!(*rhs->m_data_type < *lhs->m_data_type)) fatal_error("DataType < operator not implemented correctly");
+
+    lhs = implicit_cast(std::move(lhs), SemanticContext::base_types["signed int"]);
+    return lhs->m_data_type;
+  }
+
+  fatal_error("Not Yet Implemented");
+  return lhs->m_data_type;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
 // Finding Labels
 
-void Parser::ExpressionNode::find_labels(std::unordered_set<std::string> *labels) { return; }
-void Parser::StatementNode::find_labels(std::unordered_set<std::string> *labels) { return; }
+void ExpressionNode::find_labels(std::unordered_set<std::string> *labels) { return; }
+void StatementNode::find_labels(std::unordered_set<std::string> *labels) { return; }
 
-void Parser::LabelStmt::find_labels(std::unordered_set<std::string> *labels) {
-  auto [it, inserted] = labels->insert(label);
+void LabelStmt::find_labels(std::unordered_set<std::string> *labels) {
+  auto [it, inserted] = labels->insert(m_label);
   (void)it;
   if (!inserted) {
-    SemanticContext::error(this, std::format(R"(Redefinition of label "{}")", label));
+    SemanticContext::error(this, std::format(R"(Redefinition of label "{}")", m_label));
   }
 }
 
-void Parser::CaseStmt::find_labels(std::unordered_set<std::string> *labels) { stmt->find_labels(labels); }
-void Parser::DefaultStmt::find_labels(std::unordered_set<std::string> *labels) { stmt->find_labels(labels); }
-
-void Parser::CompoundStmt::find_labels(std::unordered_set<std::string> *labels) {
-  for (auto &stmt : stmts) {
+void CompoundStmt::find_labels(std::unordered_set<std::string> *labels) {
+  for (auto &stmt : m_stmts) {
     stmt->find_labels(labels);
   }
 }
 
-void Parser::IfStmt::find_labels(std::unordered_set<std::string> *labels) {
-  true_stmt->find_labels(labels);
-  if (false_stmt != nullptr) {
-    false_stmt->find_labels(labels);
+void IfStmt::find_labels(std::unordered_set<std::string> *labels) {
+  m_true_stmt->find_labels(labels);
+  if (m_false_stmt != nullptr) {
+    m_false_stmt->find_labels(labels);
   }
 }
 
-void Parser::SwitchStmt::find_labels(std::unordered_set<std::string> *labels) { stmt->find_labels(labels); }
-void Parser::WhileStmt::find_labels(std::unordered_set<std::string> *labels) { stmt->find_labels(labels); }
-void Parser::ForStmt::find_labels(std::unordered_set<std::string> *labels) { stmt->find_labels(labels); }
-void Parser::DeclarationNode::find_labels(std::unordered_set<std::string> *labels) { return; }
+void SwitchStmt::find_labels(std::unordered_set<std::string> *labels) { m_stmt->find_labels(labels); }
+void WhileStmt::find_labels(std::unordered_set<std::string> *labels) { m_stmt->find_labels(labels); }
+void ForStmt::find_labels(std::unordered_set<std::string> *labels) { m_stmt->find_labels(labels); }
+void DeclarationNode::find_labels(std::unordered_set<std::string> *labels) { return; }
 
-void Parser::FunctionDefinition::find_labels(std::unordered_set<std::string> *p_labels) {
-  if (body == nullptr) return;
-  body->find_labels(&labels);
+void FunctionDefinition::find_labels(std::unordered_set<std::string> *p_labels) {
+  if (m_body == nullptr) return;
+  m_body->find_labels(&labels);
 }
 
-void Parser::TranslationUnit::find_labels(std::unordered_set<std::string> *p_labels) {
-  for (auto &decl : program) {
+void TranslationUnit::find_labels(std::unordered_set<std::string> *p_labels) {
+  stage = "finding labels";
+  for (auto &decl : m_program) {
     decl->find_labels(nullptr);
   }
 }
@@ -83,153 +191,145 @@ void Parser::TranslationUnit::find_labels(std::unordered_set<std::string> *p_lab
 /////////////////////////////////////////////////////////////////////////////////////////
 // Identifier Resolving
 
-void Parser::UnaryOpNode::resolve_identifiers(SemanticContext *context) { operand->resolve_identifiers(context); }
+void ExpressionNode::resolve_identifiers(SemanticContext *context) { return; };
 
-void Parser::BinaryOpNode::resolve_identifiers(SemanticContext *context) {
-  left_operand->resolve_identifiers(context);
-  right_operand->resolve_identifiers(context);
+void UnaryOpNode::resolve_identifiers(SemanticContext *context) { m_operand->resolve_identifiers(context); }
+
+void BinaryOpNode::resolve_identifiers(SemanticContext *context) {
+  m_left_operand->resolve_identifiers(context);
+  m_right_operand->resolve_identifiers(context);
 }
 
-void Parser::TernaryOpNode::resolve_identifiers(SemanticContext *context) {
-  condition->resolve_identifiers(context);
-  true_expr->resolve_identifiers(context);
-  false_expr->resolve_identifiers(context);
+void TernaryOpNode::resolve_identifiers(SemanticContext *context) {
+  m_condition->resolve_identifiers(context);
+  m_true_expr->resolve_identifiers(context);
+  m_false_expr->resolve_identifiers(context);
 }
 
-void Parser::CallNode::resolve_identifiers(SemanticContext *context) {
-  SharedDataType function_type = context->get_identifier_type(name);
-  if (function_type == nullptr) {
-    context->error(dynamic_cast<Node *>(this), std::format(R"(call to undeclared function "{}")", name));
-    return;
-  }
-  if (function_type->m_kind != DataType::TypeKind::TYPE_FUNCTION) {
-    context->error(
-        dynamic_cast<Node *>(this),
-        std::format(R"(called object type "{}" is not a function or function pointer)", function_type->to_string()));
-    return;
-  }
+void MemberAccessNode::resolve_identifiers(SemanticContext *context) { m_expr->resolve_identifiers(context); }
 
-  fatal_error("Fix me");
-  FunctionType *temp_type = dynamic_cast<FunctionType *>(function_type.get());
-  if (args.size() > temp_type->param_types.size()) {
-    context->error(dynamic_cast<Node *>(this), std::format(R"(Too many arguments, expected {}, have {})",
-                                                           temp_type->param_types.size(), args.size()));
-    return;
-  }
-  if (args.size() < temp_type->param_types.size()) {
-    context->error(dynamic_cast<Node *>(this), std::format(R"(Too few arguments, expected {}, have {})",
-                                                           temp_type->param_types.size(), args.size()));
-    return;
-  }
+void CallNode::resolve_identifiers(SemanticContext *context) {
+  m_callee->resolve_identifiers(context);
 
-  for (auto &arg : args) {
+  for (auto &arg : m_args) {
     arg->resolve_identifiers(context);
   }
 }
 
-void Parser::IdentifierNode::resolve_identifiers(SemanticContext *context) {
-  SharedDataType identifier_type = context->get_identifier_type(name);
+void IdentifierNode::resolve_identifiers(SemanticContext *context) {
+  SharedDataType identifier_type = context->get_identifier_type(m_name);
   if (identifier_type == nullptr) {
-    context->error(dynamic_cast<Node *>(this), std::format(R"(use of undeclared identifier "{}")", name));
+    context->error(dynamic_cast<Node *>(this), std::format(R"(use of undeclared identifier "{}")", m_name));
     return;
   }
 
-  d_type = identifier_type;
+  m_data_type = identifier_type;
 }
 
-void Parser::ConstantNode::resolve_identifiers(SemanticContext *context) { return; }
+void StatementNode::resolve_identifiers(SemanticContext *context) { return; }
 
-void Parser::LabelStmt::resolve_identifiers(SemanticContext *context) { stmt->resolve_identifiers(context); }
-void Parser::CaseStmt::resolve_identifiers(SemanticContext *context) { stmt->resolve_identifiers(context); }
-void Parser::DefaultStmt::resolve_identifiers(SemanticContext *context) { stmt->resolve_identifiers(context); }
-
-void Parser::CompoundStmt::resolve_identifiers(SemanticContext *context) {
+void CompoundStmt::resolve_identifiers(SemanticContext *context) {
   std::unique_ptr<SemanticContext> new_context = std::make_unique<SemanticContext>();
   new_context->previous_context = context;
 
-  for (auto &stmt : stmts) {
+  for (auto &stmt : m_stmts) {
     stmt->resolve_identifiers(new_context.get());
   }
 }
 
-void Parser::ExpressionStmt::resolve_identifiers(SemanticContext *context) {
-  if (expr != nullptr) {
-    expr->resolve_identifiers(context);
+void ExpressionStmt::resolve_identifiers(SemanticContext *context) {
+  if (m_expr != nullptr) {
+    m_expr->resolve_identifiers(context);
   }
 }
 
-void Parser::IfStmt::resolve_identifiers(SemanticContext *context) {
-  condition->resolve_identifiers(context);
-  true_stmt->resolve_identifiers(context);
-  if (false_stmt != nullptr) {
-    false_stmt->resolve_identifiers(context);
+void IfStmt::resolve_identifiers(SemanticContext *context) {
+  m_condition->resolve_identifiers(context);
+  m_true_stmt->resolve_identifiers(context);
+  if (m_false_stmt != nullptr) {
+    m_false_stmt->resolve_identifiers(context);
   }
 }
 
-void Parser::SwitchStmt::resolve_identifiers(SemanticContext *context) {
-  expr->resolve_identifiers(context);
-  stmt->resolve_identifiers(context);
+void SwitchStmt::resolve_identifiers(SemanticContext *context) {
+  m_expr->resolve_identifiers(context);
+  m_stmt->resolve_identifiers(context);
 }
 
-void Parser::WhileStmt::resolve_identifiers(SemanticContext *context) {
-  condition->resolve_identifiers(context);
-  stmt->resolve_identifiers(context);
+void WhileStmt::resolve_identifiers(SemanticContext *context) {
+  m_condition->resolve_identifiers(context);
+  m_stmt->resolve_identifiers(context);
 }
 
-void Parser::ForStmt::resolve_identifiers(SemanticContext *context) {
+void ForStmt::resolve_identifiers(SemanticContext *context) {
   std::unique_ptr<SemanticContext> new_context = std::make_unique<SemanticContext>();
   new_context->previous_context = context;
 
   // Init clause likely to bring in new identifier so new context is needed
-  if (init_clause != nullptr) {
-    init_clause->resolve_identifiers(new_context.get());
+  if (m_init_clause != nullptr) {
+    m_init_clause->resolve_identifiers(new_context.get());
   }
-  if (condition != nullptr) {
-    condition->resolve_identifiers(new_context.get());
+  if (m_condition != nullptr) {
+    m_condition->resolve_identifiers(new_context.get());
   }
-  if (iteration != nullptr) {
-    iteration->resolve_identifiers(new_context.get());
+  if (m_iteration != nullptr) {
+    m_iteration->resolve_identifiers(new_context.get());
   }
 
-  stmt->resolve_identifiers(new_context.get());
+  m_stmt->resolve_identifiers(new_context.get());
 }
 
-void Parser::ControlStmt::resolve_identifiers(SemanticContext *context) { return; }
-
-void Parser::ReturnStmt::resolve_identifiers(SemanticContext *context) {
-  if (return_value != nullptr) {
-    return_value->resolve_identifiers(context);
-  }
-}
-
-void Parser::GotoStmt::resolve_identifiers(SemanticContext *context) {
-  if (context->labels.find(label) == context->labels.end()) {
-    context->error(this, std::format(R"(Use of undeclared label "{}")", label));
+void ReturnStmt::resolve_identifiers(SemanticContext *context) {
+  if (m_return_value != nullptr) {
+    m_return_value->resolve_identifiers(context);
   }
 }
 
-void Parser::DeclarationNode::resolve_identifiers(SemanticContext *context) {
-  context->push_identifier(identifier, m_data_type);
+void GotoStmt::resolve_identifiers(SemanticContext *context) {
+  if (context->labels.find(m_label) == context->labels.end()) {
+    context->error(this, std::format(R"(Use of undeclared label "{}")", m_label));
+  }
 }
 
-void Parser::FunctionDefinition::resolve_identifiers(SemanticContext *context) {
-  context->push_identifier(identifier, m_data_type);
+void VariableDeclaration::resolve_identifiers(SemanticContext *context) {
+  context->push_identifier(m_identifier, m_data_type);
+  if (m_initializer != nullptr) {
+    m_initializer->resolve_identifiers(context);
+  }
+}
+
+void FunctionDefinition::resolve_identifiers(SemanticContext *context) {
+  context->push_identifier(m_identifier, m_data_type);
 
   std::unique_ptr<SemanticContext> new_context = std::make_unique<SemanticContext>();
   new_context->previous_context = context;
   new_context->labels = labels;
 
-  for (auto &param : params) {
+  for (auto &param : m_params) {
     param->resolve_identifiers(new_context.get());
   }
-  body->resolve_identifiers(new_context.get());
+
+  if (m_body != nullptr) {
+    m_body->resolve_identifiers(new_context.get());
+  }
 }
 
-void Parser::TranslationUnit::resolve_identifiers(SemanticContext *context) {
+void ArrayDeclaration::resolve_identifiers(SemanticContext *context) {
+  context->push_identifier(m_identifier, m_data_type);
+  if (m_initializer != nullptr) {
+    m_initializer->resolve_identifiers(context);
+  }
+  if (m_size != nullptr) {
+    m_size->resolve_identifiers(context);
+  }
+}
+
+void TranslationUnit::resolve_identifiers(SemanticContext *context) {
+  stage = "resolving identifiers";
   std::unique_ptr<SemanticContext> new_context = std::make_unique<SemanticContext>();
   new_context->previous_context = nullptr;
 
-  for (auto &decl : program) {
+  for (auto &decl : m_program) {
     decl->resolve_identifiers(new_context.get());
   }
 }
@@ -237,172 +337,195 @@ void Parser::TranslationUnit::resolve_identifiers(SemanticContext *context) {
 /////////////////////////////////////////////////////////////////////////////////////////
 // Resolve Types
 
-bool type_compatible(const Parser::DataType *t1, const Parser::DataType *t2) { fatal_error("Not Yet Implemented"); }
+bool type_compatible(SharedDataType t1, SharedDataType t2) {
+  return true;
+  fatal_error("Not Yet Implemented");
+}
 
-Parser::SharedDataType Parser::UnaryOpNode::resolve_types(Parser::SemanticContext *context) {
-  SharedDataType operand_type = operand->resolve_types(context);
-  if (operand_type == nullptr) return d_type;
-  switch (operation) {
+SharedDataType UnaryOpNode::resolve_types() {
+  SharedDataType operand_type = m_operand->resolve_types();
+
+  if (operand_type == nullptr) return nullptr;
+
+  switch (m_operation) {
     case OpType::OP_POSITIVE:
     case OpType::OP_NEGATIVE:
       if (!operand_type->is_arithemtic()) {
-        context->error(this,
-                       std::format(R"(Invalid argument type "{}" to unary expression)", operand_type->to_string()));
+        SemanticContext::error(
+            this, std::format(R"(Invalid argument type "{}" to unary expression)", operand_type->to_string()));
         return nullptr;
       }
-      is_lvalue = false;
+      if (operand_type->m_size < 4) {
+        m_operand = implicit_cast(std::move(m_operand), SemanticContext::base_types["signed int"]);
+      }
+      m_data_type = m_operand->m_data_type;
+      m_is_lvalue = false;
       break;
     case OpType::OP_INCREMENT:
     case OpType::OP_DECREMENT:
     case OpType::OP_POST_INCREMENT:
     case OpType::OP_POST_DECREMENT:
-      if (!(operand->is_lvalue && operand_type->is_modifiable() && operand_type->is_scalar())) {
-        context->error(this, std::format(R"(Invalid argument type "{}" to increment/decrement expression)",
-                                         operand_type->to_string()));
+      if (!(m_operand->m_is_lvalue && operand_type->is_modifiable())) {
+        SemanticContext::error(this,
+                               std::format(R"(expression is not assignable)", operand_type->to_string(), to_string()));
         return nullptr;
       }
-      is_lvalue = false;
+      if (!operand_type->is_scalar()) {
+        SemanticContext::error(this, std::format(R"(Invalid argument type "{}" to "{}" expression)",
+                                                 operand_type->to_string(), to_string()));
+        return nullptr;
+      }
+      m_data_type = operand_type;
+      m_is_lvalue = false;
       break;
     case OpType::OP_LOGIC_NOT:
       if (!operand_type->is_scalar()) {
-        context->error(this, std::format(R"(Invalid argument type "{}" to "!" expression)", operand_type->to_string()));
+        SemanticContext::error(
+            this, std::format(R"(Invalid argument type "{}" to "!" expression)", operand_type->to_string()));
         return nullptr;
       }
-      d_type = std::make_shared<DataType>(DataType::TypeKind::TYPE_INT, true, 4);
-      is_lvalue = false;
-      return d_type;
+      m_data_type = SemanticContext::base_types["signed int"];
+      m_is_lvalue = false;
+      break;
     case OpType::OP_BITWISE_NOT:
       if (!operand_type->is_integer()) {
-        context->error(this, std::format(R"(Invalid argument type "{}" to "~" expression)", operand_type->to_string()));
+        SemanticContext::error(
+            this, std::format(R"(Invalid argument type "{}" to "~" expression)", operand_type->to_string()));
       }
-      is_lvalue = false;
+      if (operand_type->m_size < 4) {
+        m_operand = implicit_cast(std::move(m_operand), SemanticContext::base_types["signed int"]);
+      }
+      m_data_type = m_operand->m_data_type;
+      m_is_lvalue = false;
+      break;
     case OpType::OP_ADDRESS_OF:
-      if (!operand->is_lvalue) {
-        context->error(this, std::format(R"(cannot take address of rvalue type "{}")", operand_type->to_string()));
+      if (!m_operand->m_is_lvalue) {
+        SemanticContext::error(this,
+                               std::format(R"(cannot take address of rvalue type "{}")", operand_type->to_string()));
         return nullptr;
       }
       {
-        is_lvalue = false;
+        m_is_lvalue = false;
         PointerType *temp_type = new PointerType();
         temp_type->m_base_type = operand_type;
-        d_type = SharedDataType(temp_type);
-        return d_type;
+        m_data_type = SharedDataType(temp_type);
+        return m_data_type;
       }
     case OpType::OP_INDIRECTION:
       if (*operand_type == DataType::TypeKind::TYPE_ARRAY) {
-        d_type = dynamic_cast<ArrayType *>(operand_type.get())->m_base_type;
-        is_lvalue = true;
+        m_data_type = dynamic_cast<ArrayType *>(operand_type.get())->m_base_type;
+        m_is_lvalue = true;
       }
       else if (*operand_type == DataType::TypeKind::TYPE_FUNCTION) {
-        is_lvalue = false;
+        m_is_lvalue = false;
         PointerType *temp_type = new PointerType();
         temp_type->m_base_type = operand_type;
-        d_type = SharedDataType(temp_type);
-        return d_type;
+        m_data_type = SharedDataType(temp_type);
+        return m_data_type;
       }
       else if (*operand_type == DataType::TypeKind::TYPE_POINTER) {
-        is_lvalue = true;
-        d_type = dynamic_cast<PointerType *>(operand_type.get())->m_base_type;
-        return d_type;
+        m_is_lvalue = true;
+        m_data_type = dynamic_cast<PointerType *>(operand_type.get())->m_base_type;
+        return m_data_type;
       }
       else {
-        context->error(this,
-                       std::format(R"(indirection requires pointer type, "{}" is invalid)", operand_type->to_string()));
+        SemanticContext::error(
+            this, std::format(R"(indirection requires pointer type, "{}" is invalid)", operand_type->to_string()));
         return nullptr;
       }
     case OpType::OP_SIZEOF:
-      d_type = std::make_shared<DataType>(DataType::TypeKind::TYPE_INT, false, 4);
-      is_lvalue = false;
-      return d_type;
+      m_data_type = std::make_shared<DataType>(DataType::TypeKind::TYPE_INT, false, 4);
+      m_is_lvalue = false;
+      break;
+    case OpType::OP_CAST:
+      if (m_data_type->m_kind != DataType::TypeKind::TYPE_VOID && !operand_type->is_scalar()) {
+        SemanticContext::error(this, std::format(R"(Operand of type "{}" where arithmetic or pointer type is required)",
+                                                 operand_type->to_string()));
+        return nullptr;
+      }
+      m_is_lvalue = false;
+      break;
   }
 
-  d_type = operand_type;
-
-  return d_type;
+  return m_data_type;
 }
 
-Parser::SharedDataType Parser::BinaryOpNode::resolve_types(Parser::SemanticContext *context) {
-  SharedDataType left_type = left_operand->resolve_types(context);
-  SharedDataType right_type = right_operand->resolve_types(context);
+SharedDataType BinaryOpNode::resolve_types() {
+  SharedDataType left_type = m_left_operand->resolve_types();
+  SharedDataType right_type = m_right_operand->resolve_types();
 
   if (left_type == nullptr || right_type == nullptr) {
     return nullptr;
   }
 
-  switch (operation) {
+  switch (m_operation) {
     case OpType::OP_SUBTRACTION:
       if (left_type->m_kind == DataType::TypeKind::TYPE_POINTER && left_type->m_kind == right_type->m_kind) {
-        d_type = left_type;
-        is_lvalue = false;
-        return d_type;
+        m_data_type = left_type;
+        m_is_lvalue = false;
+        return m_data_type;
       }
       if (left_type->m_kind == DataType::TypeKind::TYPE_POINTER && left_type->is_complete() &&
           right_type->is_integer()) {
-        d_type = left_type;
-        is_lvalue = false;
-        return d_type;
+        m_data_type = left_type;
+        m_is_lvalue = false;
+        return m_data_type;
       }
       if (left_type->is_arithemtic() && right_type->is_arithemtic()) {
-        // TODO do arithmetic conversion
-        d_type = left_type;
-        is_lvalue = false;
-        return d_type;
+        m_data_type = arithmetic_conversion(m_left_operand, m_right_operand);
+        m_is_lvalue = false;
+        return m_data_type;
       }
       break;
     case OpType::OP_ADDITION:
       if (left_type->is_arithemtic() && right_type->is_arithemtic()) {
-        // TODO do arithmetic conversion
-        d_type = left_type;
-        is_lvalue = false;
-        return d_type;
+        m_data_type = arithmetic_conversion(m_left_operand, m_right_operand);
+        m_is_lvalue = false;
+        return m_data_type;
       }
       if ((left_type->m_kind == DataType::TypeKind::TYPE_POINTER && left_type->is_complete() &&
            right_type->is_integer())) {
-        d_type = left_type;
-        is_lvalue = false;
-        return d_type;
+        m_data_type = left_type;
+        m_is_lvalue = false;
+        return m_data_type;
       }
       if ((right_type->m_kind == DataType::TypeKind::TYPE_POINTER && right_type->is_complete() &&
            left_type->is_integer())) {
-        d_type = right_type;
-        is_lvalue = false;
-        return d_type;
+        m_data_type = right_type;
+        m_is_lvalue = false;
+        return m_data_type;
       }
       break;
     case OpType::OP_MULTIPLICATION:
     case OpType::OP_DIVISION:
       if (left_type->is_arithemtic() && right_type->is_arithemtic()) {
-        // TODO do arithmetic conversion
-        d_type = left_type;
-        is_lvalue = false;
-        return d_type;
+        m_data_type = arithmetic_conversion(m_left_operand, m_right_operand);
+        m_is_lvalue = false;
+        return m_data_type;
       }
       break;
     case OpType::OP_MODULO:
       if (left_type->is_integer() && right_type->is_arithemtic()) {
-        // TODO do arithmetic conversion
-        d_type = left_type;
-        is_lvalue = false;
-        return d_type;
+        m_data_type = arithmetic_conversion(m_left_operand, m_right_operand);
+        m_is_lvalue = false;
+        return m_data_type;
       }
       break;
     case OpType::OP_BIT_RIGHT:
     case OpType::OP_BIT_LEFT:
       if (left_type->is_integer() && right_type->is_integer()) {
-        // TODO do arithmetic conversion
-        d_type = left_type;
-        is_lvalue = false;
-        return d_type;
+        m_data_type = arithmetic_conversion(m_left_operand, m_right_operand);
+        m_is_lvalue = false;
+        return m_data_type;
       }
       break;
     case OpType::OP_BIT_AND:
     case OpType::OP_BIT_OR:
     case OpType::OP_BIT_XOR:
       if (left_type->is_integer() && right_type->is_integer()) {
-        // TODO do arithmetic conversion
-        d_type = left_type;
-        is_lvalue = false;
-        return d_type;
+        m_data_type = arithmetic_conversion(m_left_operand, m_right_operand);
+        m_is_lvalue = false;
+        return m_data_type;
       }
       break;
     case OpType::OP_COMP_GREATER:
@@ -411,9 +534,9 @@ Parser::SharedDataType Parser::BinaryOpNode::resolve_types(Parser::SemanticConte
     case OpType::OP_COMP_LESS_EQUAL:
       if ((left_type->is_real() && right_type->is_real()) ||
           (*left_type == DataType::TypeKind::TYPE_POINTER && *right_type == DataType::TypeKind::TYPE_POINTER)) {
-        d_type = std::make_shared<DataType>(DataType::TypeKind::TYPE_INT, true, 4);
-        is_lvalue = false;
-        return d_type;
+        m_data_type = std::make_shared<DataType>(DataType::TypeKind::TYPE_INT, true, 4);
+        m_is_lvalue = false;
+        return m_data_type;
       }
       break;
     case OpType::OP_COMP_EQUAL:
@@ -421,16 +544,16 @@ Parser::SharedDataType Parser::BinaryOpNode::resolve_types(Parser::SemanticConte
       // TODO null pointer
       if ((left_type->is_real() && right_type->is_real()) ||
           (*left_type == DataType::TypeKind::TYPE_POINTER && *right_type == DataType::TypeKind::TYPE_POINTER)) {
-        d_type = std::make_shared<DataType>(DataType::TypeKind::TYPE_INT, true, 4);
-        is_lvalue = false;
-        return d_type;
+        m_data_type = std::make_shared<DataType>(DataType::TypeKind::TYPE_INT, true, 4);
+        m_is_lvalue = false;
+        return m_data_type;
       }
     case OpType::OP_LOGIC_AND:
     case OpType::OP_LOGIC_OR:
       if (left_type->is_scalar() && right_type->is_scalar()) {
-        d_type = std::make_shared<DataType>(DataType::TypeKind::TYPE_INT, true, 4);
-        is_lvalue = false;
-        return d_type;
+        m_data_type = std::make_shared<DataType>(DataType::TypeKind::TYPE_INT, true, 4);
+        m_is_lvalue = false;
+        return m_data_type;
       }
     case OpType::OP_ASSIGN:
     case OpType::OP_ADD_ASSIGN:
@@ -444,13 +567,260 @@ Parser::SharedDataType Parser::BinaryOpNode::resolve_types(Parser::SemanticConte
     case OpType::OP_LEFT_SHIFT_ASSIGN:
     case OpType::OP_RIGHT_SHIFT_ASSIGN:
     case OpType::OP_ARRAY_SUBSCRIPT:
-    case OpType::OP_DIRECT_MEM_ACCESS:
-    case OpType::OP_INDIRECT_MEM_ACCESS:
-      fatal_error("NOT YET IMPLEMENTED");
+      fatal_error("Not Yet Implemented");
   }
 
   SemanticContext::error(
       this, std::format(R"(incompatible types "{}" and "{}")", left_type->to_string(), right_type->to_string()));
+  return nullptr;
+}
+
+SharedDataType TernaryOpNode::resolve_types() {
+  fatal_error("Not Yet Implemented");
+  return nullptr;
+}
+
+SharedDataType MemberAccessNode::resolve_types() {
+  SharedDataType expr_type = m_expr->resolve_types();
+
+  if (expr_type == nullptr) return nullptr;
+
+  StructUnionType *base_type = nullptr;
+
+  switch (m_access_type) {
+    case OpType::OP_INDIRECT_MEM_ACCESS:
+      if (*expr_type != DataType::TypeKind::TYPE_POINTER) {
+        SemanticContext::error(this,
+                               std::format(R"(Member reference type "{}" is not a pointer)", expr_type->to_string()));
+        return nullptr;
+      }
+      base_type = dynamic_cast<StructUnionType *>(dynamic_cast<PointerType *>(expr_type.get())->m_base_type.get());
+      break;
+    case OpType::OP_DIRECT_MEM_ACCESS:
+      // TODO This supposedly will return nullptr on a bad cast
+      base_type = dynamic_cast<StructUnionType *>(expr_type.get());
+  }
+
+  if (base_type && (*expr_type != DataType::TypeKind::TYPE_STRUCT || *expr_type != DataType::TypeKind::TYPE_UNION)) {
+    SemanticContext::error(
+        this, std::format(R"(Member reference base type "{}" is not a structure or union)", expr_type->to_string()));
+    return nullptr;
+  }
+
+  for (auto field : base_type->m_fields) {
+    if (m_member == field.m_name) {
+      m_data_type = field.m_type;
+      m_is_lvalue = m_expr->m_is_lvalue;
+      return m_data_type;
+    }
+  }
+
+  SemanticContext::error(this, std::format(R"(No member named "{}" in "{}")", m_member, base_type->to_string()));
+  return nullptr;
+}
+
+SharedDataType CallNode::resolve_types() {
+  SharedDataType callee_type = m_callee->resolve_types();
+
+  if (callee_type == nullptr) return nullptr;
+
+  if (callee_type->m_kind != DataType::TypeKind::TYPE_FUNCTION) {
+    SemanticContext::error(this, std::format(R"(called object type "{}" is not a function or function pointer)",
+                                             callee_type->to_string()));
+    return nullptr;
+  }
+
+  FunctionType *function_type = dynamic_cast<FunctionType *>(callee_type.get());
+  if (m_args.size() > function_type->m_param_types.size()) {
+    SemanticContext::error(this, std::format(R"(Too many arguments, expected {}, have {})",
+                                             function_type->m_param_types.size(), m_args.size()));
+    return nullptr;
+  }
+  if (m_args.size() < function_type->m_param_types.size()) {
+    SemanticContext::error(this, std::format(R"(Too few arguments, expected {}, have {})",
+                                             function_type->m_param_types.size(), m_args.size()));
+    return nullptr;
+  }
+
+  for (size_t i = 0; i < m_args.size(); ++i) {
+    SharedDataType arg_type = m_args[i]->resolve_types();
+
+    // TODO cast arg types
+    if (!type_compatible(arg_type, function_type->m_param_types[i])) {
+      SemanticContext::error(this, std::format(R"(Passing "{}" to parameter of incompatible type "{}")",
+                                               arg_type->to_string(), function_type->m_param_types[i]->to_string()));
+      return nullptr;
+    }
+  }
+
+  m_data_type = function_type->m_return_type;
+  m_is_lvalue = false;
+
+  return m_data_type;
+}
+
+SharedDataType IdentifierNode::resolve_types() {
+  m_is_lvalue = true;
+  return m_data_type;
+}
+SharedDataType ConstantNode::resolve_types() {
+  m_is_lvalue = true;
+  return m_data_type;
+}
+
+SharedDataType StatementNode::resolve_types() { return nullptr; }
+
+SharedDataType CaseStmt::resolve_types() {
+  m_expr->resolve_types();
+
+  return nullptr;
+}
+
+SharedDataType CompoundStmt::resolve_types() {
+  for (auto &stmt : m_stmts) {
+    stmt->resolve_types();
+  }
+
+  return nullptr;
+}
+
+SharedDataType ExpressionStmt::resolve_types() {
+  if (m_expr == nullptr) return nullptr;
+
+  m_expr->resolve_types();
+
+  return nullptr;
+}
+
+SharedDataType IfStmt::resolve_types() {
+  SharedDataType cond_type = m_condition->resolve_types();
+
+  if (cond_type == nullptr) return nullptr;
+
+  if (!cond_type->is_scalar()) {
+    SemanticContext::error(
+        this, std::format(R"(Statement requires expression of scalar type ("{}" invalid))", cond_type->to_string()));
+    return nullptr;
+  }
+
+  m_true_stmt->resolve_types();
+
+  if (m_false_stmt != nullptr) {
+    m_false_stmt->resolve_types();
+  }
+
+  return nullptr;
+}
+
+SharedDataType SwitchStmt::resolve_types() {
+  SharedDataType expr_type = m_expr->resolve_types();
+
+  if (expr_type == nullptr) return nullptr;
+
+  if (!expr_type->is_integer()) {
+    SemanticContext::error(
+        this, std::format(R"(Statement requires expression of integer type ("{}" invalid))", expr_type->to_string()));
+    return nullptr;
+  }
+
+  m_stmt->resolve_types();
+
+  return nullptr;
+}
+
+SharedDataType WhileStmt::resolve_types() {
+  SharedDataType cond_type = m_condition->resolve_types();
+
+  if (cond_type == nullptr) return nullptr;
+
+  if (!cond_type->is_scalar()) {
+    SemanticContext::error(
+        this, std::format(R"(Statement requires expression of scalar type ("{}" invalid))", cond_type->to_string()));
+    return nullptr;
+  }
+
+  m_stmt->resolve_types();
+
+  return nullptr;
+}
+
+SharedDataType ForStmt::resolve_types() {
+  if (m_init_clause != nullptr) {
+    if (m_init_clause->resolve_types() == nullptr) return nullptr;
+  }
+  if (m_condition->resolve_types() == nullptr) return nullptr;
+  if (m_iteration != nullptr) {
+    if (m_iteration->resolve_types() == nullptr) return nullptr;
+  }
+
+  m_stmt->resolve_types();
+
+  return nullptr;
+}
+
+SharedDataType ReturnStmt::resolve_types() {
+  if (m_return_value == nullptr) {
+    return nullptr;
+  }
+
+  m_return_value->resolve_types();
+
+  return nullptr;
+}
+
+SharedDataType VariableDeclaration::resolve_types() {
+  if (m_initializer == nullptr) return nullptr;
+
+  SharedDataType init_type = m_initializer->resolve_types();
+
+  if (init_type == nullptr) return nullptr;
+
+  // TODO Check if value can become this type
+  if (!type_compatible(m_data_type, init_type)) {
+    SemanticContext::error(
+        this, std::format(R"(incompatible types "{}" and "{}")", m_data_type->to_string(), init_type->to_string()));
+    return nullptr;
+  }
+
+  return nullptr;
+}
+
+SharedDataType FunctionDefinition::resolve_types() {
+  m_body->resolve_types();
+
+  return nullptr;
+}
+
+SharedDataType ArrayDeclaration::resolve_types() {
+  SharedDataType init_type = m_initializer->resolve_types();
+
+  if (init_type == nullptr) return nullptr;
+
+  // TODO
+  if (init_type != m_data_type) {
+    SemanticContext::error(
+        this, std::format(R"(incompatible types "{}" and "{}")", m_data_type->to_string(), init_type->to_string()));
+    return nullptr;
+  }
+
+  SharedDataType size_type = m_size->resolve_types();
+
+  if (size_type == nullptr) return nullptr;
+
+  if (!size_type->is_integer()) {
+    SemanticContext::error(this, std::format(R"(Size of array has non-integer type "{}")", size_type->to_string()));
+    return nullptr;
+  }
+
+  return nullptr;
+}
+
+SharedDataType TranslationUnit::resolve_types() {
+  stage = "resolving types";
+  for (auto &decl : m_program) {
+    decl->resolve_types();
+  }
+
   return nullptr;
 }
 

@@ -3,6 +3,7 @@
 #include <cctype>
 #include <ctime>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -449,6 +450,28 @@ constexpr int hex_value(char p_c) {
   return -1;
 }
 
+Token::NumType Lexer::read_integer_suffix() {
+  static std::unordered_map<std::string, Token::NumType> n_types = {
+      {"u", Token::NumType::UNSIGNED_INTEGER},  {"l", Token::NumType::SIGNED_INTEGER},
+      {"ul", Token::NumType::UNSIGNED_INTEGER}, {"lu", Token::NumType::UNSIGNED_INTEGER},
+      {"ull", Token::NumType::UNSIGNED_LONG},   {"llu", Token::NumType::UNSIGNED_LONG},
+      {"ll", Token::NumType::SIGNED_LONG}};
+
+  std::string suffix = "";
+
+  while (std::isalpha(peek())) {
+    suffix += tolower(advance());
+  }
+
+  auto it = n_types.find(suffix);
+  if (it != n_types.end()) {
+    return it->second;
+  }
+
+  error(std::format(R"(Invalid suffix "{}" on integer constant)", suffix));
+  return Token::NumType::NONE;
+}
+
 void Lexer::read_number() {
   int base = 10;
   bool has_decimal = false;
@@ -456,6 +479,7 @@ void Lexer::read_number() {
   bool need_digits = false;
   bool has_error = false;
   bool (*digit_check_func)(char) = is_digit;
+  Token::NumType n_type = Token::NumType::SIGNED_INTEGER;
 
   if (peek() == '0') {
     advance();
@@ -521,6 +545,9 @@ void Lexer::read_number() {
         advance();
       }
     }
+    else if (std::isalpha(peek())) {
+      n_type = read_integer_suffix();
+    }
   }
 
   if (need_digits) {
@@ -536,10 +563,27 @@ void Lexer::read_number() {
   std::string number_str = m_source.substr(m_start, len);
 
   if (!(has_decimal || has_exponent)) {
-    make_token(Token::Type::NUMBER_LITERAL, std::stoull(number_str, 0, base));
+    LiteralType lit;
+    switch (n_type) {
+      case Token::NumType::UNSIGNED_INTEGER:
+        lit = static_cast<uint32_t>(std::stoi(number_str, 0, base));
+        break;
+      case Token::NumType::UNSIGNED_LONG:
+        lit = static_cast<uint64_t>(std::stoull(number_str, 0, base));
+        break;
+      case Token::NumType::SIGNED_LONG:
+        lit = static_cast<int64_t>(std::stoll(number_str, 0, base));
+        break;
+      case Token::NumType::SIGNED_INTEGER:
+      default:
+        lit = static_cast<int32_t>(std::stoi(number_str, 0, base));
+    }
+    make_token(Token::Type::NUMBER_LITERAL, lit);
+    m_tokens.back().m_num_type = n_type;
   }
   else {
-    make_token(Token::Type::NUMBER_LITERAL, std::stod(number_str));
+    make_token(Token::Type::FLOAT_LITERAL, std::stod(number_str));
+    m_tokens.back().m_num_type = Token::NumType::DOUBLE;
   }
 }
 

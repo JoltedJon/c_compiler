@@ -1,21 +1,16 @@
-Currently working on Semantic Analysis:
-  - Implemented finding labels for goto statements
-  - Implemented resolving identifiers to ensure no use of unused identifiers
+Semantic Analysis:
 
-  - Implement struct/union field checking before type resolution
-  - Need to Finish type resolving by giving each expression the correct data type.
-    - Currently plan on adding an implicit cast node on expressions that need to change their types for a higher expression
-    - Need to store return type of Function in context to ensure that functions are returning correct type
-  - Basic control flow, need to ensure continue and break aren't used outside of loops or switch statements for break, default and case can on
+- Basic control flow, need to ensure continue and break aren't used outside of loops or switch statements for break, default and case can on
 
 Syntax Analysis:
-  - Cast Expression parsing needs to be implemented
-  - Need to parse function pointer declarations
-  - Struct and union parsing needs to be implemented
-  - Declarator lists needs to be implemented
-  - Initalizer lists
-  - Many TODOs that are not currently finished need to be implemented
+
+- Need to parse function pointer declarations
+- Struct and union parsing needs to be implemented
+- Declarator lists needs to be implemented
+- Initalizer lists
+- Many TODOs that are not currently finished need to be implemented
 
 Lexing:
-  - String concatenation is not implemented and this will cause errors if anyone uses that feature.
-  - Any TODO that hasn't been implemented yet
+
+- String concatenation is not implemented and this will cause errors if anyone uses that feature.
+- Any TODO that hasn't been implemented yet
