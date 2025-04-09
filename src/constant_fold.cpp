@@ -40,7 +40,15 @@ UniqueExpression UnaryOpNode::constant_fold() {
     fatal_error("Size of Not Yet Implemented");
   }
 
-  if (operand == nullptr || operand->m_node_type != NodeType::CONSTANT) return nullptr;
+  if (m_operand->m_node_type != NodeType::CONSTANT) {
+    if (m_operation != OpType::OP_CAST) return nullptr;
+
+    // If casting to same type, can get rid of the cast
+    if (*m_operand->m_data_type == *m_data_type) return std::move(m_operand);
+    return nullptr;
+  }
+
+  if (operand == nullptr) return nullptr;
 
   ConstantNode *constant = dynamic_cast<ConstantNode *>(operand.get());
   m_operand = std::move(operand);
@@ -194,7 +202,7 @@ UniqueExpression UnaryOpNode::constant_fold() {
     default:
       return nullptr;
   }
-  constant->m_data_type = m_data_type;
+  constant->m_data_type = m_data_type->clone();
 
   return operand;
 }
@@ -273,7 +281,7 @@ UniqueExpression BinaryOpNode::constant_fold() {
   constant->m_line = m_line;
   constant->m_column_start = m_column_start;
   constant->m_filename = m_filename;
-  constant->m_data_type = m_data_type;
+  constant->m_data_type = m_data_type->clone();
   constant->m_is_lvalue = m_is_lvalue;
 
   UniqueExpression expr(constant);

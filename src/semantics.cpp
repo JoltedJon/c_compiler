@@ -19,12 +19,11 @@ Split into multiple stages:
 
 #include "ansi_colors.hpp"
 #include "ast.hpp"
-#include "src/lexer.hpp"
 
 namespace JCC {
 
 std::unordered_map<std::string, SharedDataType> SemanticContext::base_types;
-bool SemanticContext::has_error = false;
+int SemanticContext::num_errors = 0;
 
 // Debug
 std::string stage = "";
@@ -38,9 +37,9 @@ std::string stage = "";
   } while (0)
 
 void SemanticContext::error(const Node *node, const std::string &p_error_message) {
-  has_error = true;
+  num_errors++;
 
-  if (node == nullptr) return;
+  if (node == nullptr || num_errors > 10) return;
 
   std::cerr << ANSI_COLOR_RED << "Error: " << ANSI_COLOR_RESET
             << std::format("{} {}:{}\n{}\n", node->m_filename, node->m_line, node->m_column_start, p_error_message)
@@ -67,12 +66,82 @@ void SemanticContext::push_identifier(const std::string &p_identifier, SharedDat
   identifiers[p_identifier] = std::move(p_type);
 }
 
+///////////////////////////////////////
+// Data Type Compatibility
+
+bool StructUnionType::compatible(const DataType &p_rhs) const {
+  if (p_rhs.m_kind != TypeKind::TYPE_STRUCT && p_rhs.m_kind != TypeKind::TYPE_UNION &&
+      p_rhs.m_kind != TypeKind::TYPE_INCOMPLETE)
+    return false;
+
+  if (!p_rhs.is_complete() && !is_complete()) return true;
+
+  const StructUnionType rhs = dynamic_cast<const StructUnionType &>(p_rhs);
+  if (!m_name.empty() && m_name != rhs.m_name) return false;
+
+  if (m_fields.size() != rhs.m_fields.size()) return false;
+
+  for (size_t i = 0; i < m_fields.size(); ++i) {
+    StructUnionField l = m_fields[i];
+    StructUnionField r = rhs.m_fields[i];
+
+    if (l.m_name != r.m_name) return false;
+    if (!l.m_type->compatible(*r.m_type)) return false;
+  }
+
+  return true;
+}
+
+bool FunctionType::compatible(const DataType &p_rhs) const {
+  if (p_rhs.m_kind != TypeKind::TYPE_FUNCTION) return false;
+
+  const FunctionType rhs = dynamic_cast<const FunctionType &>(p_rhs);
+
+  if (!m_return_type->compatible(*rhs.m_return_type)) return false;
+
+  if (m_param_types.size() != rhs.m_param_types.size()) return false;
+
+  for (size_t i = 0; i < m_param_types.size(); ++i) {
+    SharedDataType l = m_param_types[i];
+    SharedDataType r = rhs.m_param_types[i];
+
+    if (!l->compatible(*r)) return false;
+  }
+
+  return true;
+}
+
+bool PointerType::compatible(const DataType &p_rhs) const {
+  if (p_rhs.m_kind != TypeKind::TYPE_POINTER) return false;
+
+  const PointerType rhs = dynamic_cast<const PointerType &>(p_rhs);
+
+  if (m_base_type->m_kind == TypeKind::TYPE_VOID || rhs.m_base_type->m_kind == TypeKind::TYPE_VOID) return true;
+
+  return m_base_type->compatible(*rhs.m_base_type);
+}
+
+bool ArrayType::compatible(const DataType &p_rhs) const {
+  if (p_rhs.m_kind != DataType::TypeKind::TYPE_ARRAY) return false;
+
+  const ArrayType rhs = dynamic_cast<const ArrayType &>(p_rhs);
+
+  if (!m_base_type->compatible(*rhs.m_base_type)) return false;
+
+  if (m_size == 0 || rhs.m_size == 0) return true;
+
+  return m_size == rhs.m_size;
+}
+
+///////////////////
+// Casting
+
 UniqueExpression implicit_cast(UniqueExpression p_castee, SharedDataType p_cast_type) {
   UnaryOpNode *cast = new UnaryOpNode;
   cast->m_line = p_castee->m_line;
   cast->m_column_start = p_castee->m_column_start;
   cast->m_filename = p_castee->m_filename;
-  cast->m_data_type = std::move(p_cast_type);
+  cast->m_data_type = p_cast_type;
 
   cast->m_operand = std::move(p_castee);
   cast->m_operation = UnaryOpNode::OpType::OP_CAST;
@@ -337,12 +406,6 @@ void TranslationUnit::resolve_identifiers(SemanticContext *context) {
 /////////////////////////////////////////////////////////////////////////////////////////
 // Resolve Types
 
-bool type_compatible(SharedDataType t1, SharedDataType t2) {
-  std::cerr << "Warning: Type compatibality not yet implemented";
-  return true;
-  fatal_error("Not Yet Implemented");
-}
-
 SharedDataType UnaryOpNode::resolve_types() {
   SharedDataType operand_type = m_operand->resolve_types();
 
@@ -459,41 +522,44 @@ SharedDataType BinaryOpNode::resolve_types() {
     return nullptr;
   }
 
+  m_is_lvalue = false;
+
   switch (m_operation) {
-    case OpType::OP_SUBTRACTION:
-      if (left_type->m_kind == DataType::TypeKind::TYPE_POINTER && left_type->m_kind == right_type->m_kind) {
-        m_data_type = left_type;
-        m_is_lvalue = false;
-        return m_data_type;
-      }
-      if (left_type->m_kind == DataType::TypeKind::TYPE_POINTER && left_type->is_complete() &&
-          right_type->is_integer()) {
-        m_data_type = left_type;
-        m_is_lvalue = false;
-        return m_data_type;
-      }
-      if (left_type->is_arithemtic() && right_type->is_arithemtic()) {
-        m_data_type = arithmetic_conversion(m_left_operand, m_right_operand);
-        m_is_lvalue = false;
-        return m_data_type;
-      }
-      break;
     case OpType::OP_ADDITION:
+      // Val + Val
       if (left_type->is_arithemtic() && right_type->is_arithemtic()) {
         m_data_type = arithmetic_conversion(m_left_operand, m_right_operand);
-        m_is_lvalue = false;
         return m_data_type;
       }
+      // Pointer + Index
       if ((left_type->m_kind == DataType::TypeKind::TYPE_POINTER && left_type->is_complete() &&
            right_type->is_integer())) {
         m_data_type = left_type;
-        m_is_lvalue = false;
         return m_data_type;
       }
+      // Index + Pointer
       if ((right_type->m_kind == DataType::TypeKind::TYPE_POINTER && right_type->is_complete() &&
            left_type->is_integer())) {
         m_data_type = right_type;
-        m_is_lvalue = false;
+        return m_data_type;
+      }
+      break;
+    case OpType::OP_SUBTRACTION:
+      // Pointer - Pointer
+      if (left_type->m_kind == DataType::TypeKind::TYPE_POINTER && left_type->m_kind == right_type->m_kind &&
+          left_type->compatible(*right_type)) {
+        m_data_type = left_type;
+        return m_data_type;
+      }
+      // Pointer - Index
+      if (left_type->m_kind == DataType::TypeKind::TYPE_POINTER && left_type->is_complete() &&
+          right_type->is_integer()) {
+        m_data_type = left_type;
+        return m_data_type;
+      }
+      // Val - Val
+      if (left_type->is_arithemtic() && right_type->is_arithemtic()) {
+        m_data_type = arithmetic_conversion(m_left_operand, m_right_operand);
         return m_data_type;
       }
       break;
@@ -501,14 +567,12 @@ SharedDataType BinaryOpNode::resolve_types() {
     case OpType::OP_DIVISION:
       if (left_type->is_arithemtic() && right_type->is_arithemtic()) {
         m_data_type = arithmetic_conversion(m_left_operand, m_right_operand);
-        m_is_lvalue = false;
         return m_data_type;
       }
       break;
     case OpType::OP_MODULO:
       if (left_type->is_integer() && right_type->is_arithemtic()) {
         m_data_type = arithmetic_conversion(m_left_operand, m_right_operand);
-        m_is_lvalue = false;
         return m_data_type;
       }
       break;
@@ -516,7 +580,6 @@ SharedDataType BinaryOpNode::resolve_types() {
     case OpType::OP_BIT_LEFT:
       if (left_type->is_integer() && right_type->is_integer()) {
         m_data_type = arithmetic_conversion(m_left_operand, m_right_operand);
-        m_is_lvalue = false;
         return m_data_type;
       }
       break;
@@ -525,7 +588,6 @@ SharedDataType BinaryOpNode::resolve_types() {
     case OpType::OP_BIT_XOR:
       if (left_type->is_integer() && right_type->is_integer()) {
         m_data_type = arithmetic_conversion(m_left_operand, m_right_operand);
-        m_is_lvalue = false;
         return m_data_type;
       }
       break;
@@ -536,29 +598,67 @@ SharedDataType BinaryOpNode::resolve_types() {
       if ((left_type->is_real() && right_type->is_real()) ||
           (*left_type == DataType::TypeKind::TYPE_POINTER && *right_type == DataType::TypeKind::TYPE_POINTER)) {
         m_data_type = std::make_shared<DataType>(DataType::TypeKind::TYPE_INT, true, 4);
-        m_is_lvalue = false;
         return m_data_type;
       }
       break;
     case OpType::OP_COMP_EQUAL:
     case OpType::OP_COMP_NOT_EQUAL:
-      // TODO null pointer
       if ((left_type->is_real() && right_type->is_real()) ||
           (*left_type == DataType::TypeKind::TYPE_POINTER && *right_type == DataType::TypeKind::TYPE_POINTER)) {
         m_data_type = std::make_shared<DataType>(DataType::TypeKind::TYPE_INT, true, 4);
-        m_is_lvalue = false;
         return m_data_type;
       }
+      break;
     case OpType::OP_LOGIC_AND:
     case OpType::OP_LOGIC_OR:
       if (left_type->is_scalar() && right_type->is_scalar()) {
         m_data_type = std::make_shared<DataType>(DataType::TypeKind::TYPE_INT, true, 4);
-        m_is_lvalue = false;
         return m_data_type;
       }
+      break;
     case OpType::OP_ASSIGN:
+      m_data_type = left_type;
+      if (!(left_type->is_modifiable() && m_left_operand->m_is_lvalue && left_type->is_complete())) {
+        SemanticContext::error(this, std::format(R"(Cannot assign to variable "{}" with type "{}")",
+                                                 m_left_operand->to_string(), left_type->to_string()));
+        return nullptr;
+      }
+      if ((left_type->is_arithemtic() && right_type->is_arithemtic()) || left_type->compatible(*right_type)) {
+        m_right_operand = implicit_cast(std::move(m_right_operand), left_type);
+        return m_data_type;
+      }
+      break;
     case OpType::OP_ADD_ASSIGN:
+      m_data_type = left_type;
+      // Val + Val
+      if (left_type->is_arithemtic() && right_type->is_arithemtic()) {
+        m_right_operand = implicit_cast(std::move(m_right_operand), left_type);
+        return m_data_type;
+      }
+      // Pointer + Index
+      if ((left_type->m_kind == DataType::TypeKind::TYPE_POINTER && left_type->is_complete() &&
+           right_type->is_integer())) {
+        return m_data_type;
+      }
+      break;
     case OpType::OP_SUBTRACT_ASSIGN:
+      m_data_type = left_type;
+      // Pointer - Pointer
+      if (left_type->m_kind == DataType::TypeKind::TYPE_POINTER && left_type->m_kind == right_type->m_kind &&
+          left_type->compatible(*right_type)) {
+        return m_data_type;
+      }
+      // Pointer - Index
+      if (left_type->m_kind == DataType::TypeKind::TYPE_POINTER && left_type->is_complete() &&
+          right_type->is_integer()) {
+        return m_data_type;
+      }
+      // Val - Val
+      if (left_type->is_arithemtic() && right_type->is_arithemtic()) {
+        m_data_type = arithmetic_conversion(m_left_operand, m_right_operand);
+        return m_data_type;
+      }
+      break;
     case OpType::OP_MULTIPLY_ASSIGN:
     case OpType::OP_DIVIDE_ASSIGN:
     case OpType::OP_MODULO_ASSIGN:
@@ -567,8 +667,40 @@ SharedDataType BinaryOpNode::resolve_types() {
     case OpType::OP_BITWISE_XOR_ASSIGN:
     case OpType::OP_LEFT_SHIFT_ASSIGN:
     case OpType::OP_RIGHT_SHIFT_ASSIGN:
-    case OpType::OP_ARRAY_SUBSCRIPT:
-      fatal_error("Not Yet Implemented");
+      m_data_type = left_type;
+      if (left_type->is_arithemtic() && right_type->is_arithemtic()) {
+        m_right_operand = implicit_cast(std::move(m_right_operand), left_type);
+        return m_data_type;
+      }
+    case OpType::OP_ARRAY_SUBSCRIPT: {
+      m_is_lvalue = true;
+
+      PointerType *pointer_expr = nullptr;
+      DataType *integer_expr = nullptr;
+      if (left_type->m_kind == DataType::TypeKind::TYPE_POINTER) {
+        pointer_expr = dynamic_cast<PointerType *>(left_type.get());
+      }
+      else if (right_type->m_kind == DataType::TypeKind::TYPE_POINTER) {
+        pointer_expr = dynamic_cast<PointerType *>(right_type.get());
+      }
+
+      if (left_type->is_integer()) {
+        integer_expr = left_type.get();
+      }
+      else if (right_type->is_integer()) {
+        integer_expr = right_type.get();
+      }
+
+      if (pointer_expr == nullptr || integer_expr == nullptr) {
+        break;
+      }
+
+      m_data_type = pointer_expr->m_base_type;
+      return m_data_type;
+    }
+    case OpType::OP_COMMA:
+      m_data_type = right_type;
+      return m_data_type;
   }
 
   SemanticContext::error(
@@ -577,8 +709,64 @@ SharedDataType BinaryOpNode::resolve_types() {
 }
 
 SharedDataType TernaryOpNode::resolve_types() {
-  fatal_error("Not Yet Implemented");
-  return nullptr;
+  SharedDataType cond_type = m_condition->resolve_types();
+  SharedDataType true_type = m_true_expr->resolve_types();
+  SharedDataType false_type = m_false_expr->resolve_types();
+
+  if (!cond_type->is_scalar()) {
+    // Used type 'struct s' where arithmetic or pointer type is required
+    SemanticContext::error(
+        this, std::format(R"(Used type "{}" where arithmetic or pointer type is required)", cond_type->to_string()));
+    return nullptr;
+  }
+
+  if (!true_type->compatible(*false_type)) {
+    // Incompatible operand types ('int' and 'struct s')
+    SemanticContext::error(this, std::format(R"~(Incompatible operand types ("{}" and "{}"))~", true_type->to_string(),
+                                             false_type->to_string()));
+    return nullptr;
+  }
+
+  if (true_type->is_arithemtic() && false_type->is_arithemtic()) {
+    arithmetic_conversion(m_true_expr, m_false_expr);
+    m_data_type = m_true_expr->m_data_type;
+    return m_true_expr->m_data_type;
+  }
+
+  if (true_type->m_kind == DataType::TypeKind::TYPE_STRUCT || true_type->m_kind == DataType::TypeKind::TYPE_UNION ||
+      true_type->m_kind == DataType::TypeKind::TYPE_VOID) {
+    m_data_type = true_type;
+    return m_data_type;
+  }
+
+  if (true_type->m_kind != DataType::TypeKind::TYPE_POINTER && true_type->m_kind != DataType::TypeKind::TYPE_POINTER) {
+    m_data_type = true_type;
+    return m_data_type;
+  }
+
+  PointerType *true_ptr = dynamic_cast<PointerType *>(true_type.get());
+  PointerType *false_ptr = dynamic_cast<PointerType *>(false_type.get());
+
+  if (true_ptr->m_base_type->m_kind == DataType::TypeKind::TYPE_VOID &&
+      true_ptr->m_base_type->m_kind == DataType::TypeKind::TYPE_VOID) {
+    m_data_type = true_type;
+    return m_data_type;
+  }
+
+  if (true_ptr->m_base_type->m_kind == DataType::TypeKind::TYPE_VOID) {
+    m_false_expr = implicit_cast(std::move(m_false_expr), true_type);
+    m_data_type = true_type;
+    return m_data_type;
+  }
+
+  if (false_ptr->m_base_type->m_kind == DataType::TypeKind::TYPE_VOID) {
+    m_true_expr = implicit_cast(std::move(m_true_expr), false_type);
+    m_data_type = false_type;
+    return m_data_type;
+  }
+
+  m_data_type = true_type;
+  return m_data_type;
 }
 
 SharedDataType MemberAccessNode::resolve_types() {
@@ -645,13 +833,15 @@ SharedDataType CallNode::resolve_types() {
 
   for (size_t i = 0; i < m_args.size(); ++i) {
     SharedDataType arg_type = m_args[i]->resolve_types();
+    SharedDataType param_type = function_type->m_param_types[i];
 
-    // TODO cast arg types
-    if (!type_compatible(arg_type, function_type->m_param_types[i])) {
+    if (!arg_type->compatible(*param_type)) {
       SemanticContext::error(this, std::format(R"(Passing "{}" to parameter of incompatible type "{}")",
-                                               arg_type->to_string(), function_type->m_param_types[i]->to_string()));
+                                               arg_type->to_string(), param_type->to_string()));
       return nullptr;
     }
+
+    m_args[i] = implicit_cast(std::move(m_args[i]), param_type);
   }
 
   m_data_type = function_type->m_return_type;
@@ -661,11 +851,19 @@ SharedDataType CallNode::resolve_types() {
 }
 
 SharedDataType IdentifierNode::resolve_types() {
+  if (m_data_type->m_kind == DataType::TypeKind::TYPE_ARRAY) {
+    // Identifier of Array type decays to pointer type when used
+    PointerType *p_type = new PointerType;
+
+    p_type->m_base_type = dynamic_cast<ArrayType *>(m_data_type.get())->m_base_type;
+    return SharedDataType(p_type);
+  }
+
   m_is_lvalue = true;
   return m_data_type;
 }
 SharedDataType ConstantNode::resolve_types() {
-  m_is_lvalue = true;
+  m_is_lvalue = m_val_type == ValType::STRING;
   return m_data_type;
 }
 
@@ -776,12 +974,13 @@ SharedDataType VariableDeclaration::resolve_types() {
 
   if (init_type == nullptr) return nullptr;
 
-  // TODO Check if value can become this type
-  if (!type_compatible(m_data_type, init_type)) {
+  if (!m_data_type->compatible(*init_type)) {
     SemanticContext::error(
         this, std::format(R"(incompatible types "{}" and "{}")", m_data_type->to_string(), init_type->to_string()));
     return nullptr;
   }
+
+  m_initializer = implicit_cast(std::move(m_initializer), m_data_type);
 
   return nullptr;
 }
@@ -797,8 +996,7 @@ SharedDataType ArrayDeclaration::resolve_types() {
 
   if (init_type == nullptr) return nullptr;
 
-  // TODO arrays not yet implemented
-  if (init_type != m_data_type) {
+  if (!m_data_type->compatible(*init_type)) {
     SemanticContext::error(
         this, std::format(R"(incompatible types "{}" and "{}")", m_data_type->to_string(), init_type->to_string()));
     return nullptr;
@@ -840,7 +1038,7 @@ void CaseStmt::control_flow(FlowContext *p_context) {
 }
 
 void DefaultStmt::control_flow(FlowContext *p_context) {
-  if (!p_context->in_switch == 0) {
+  if (p_context->in_switch == 0) {
     SemanticContext::error(this, R"("default" statement not in switch statement)");
   }
 }
@@ -890,8 +1088,24 @@ void ControlStmt::control_flow(FlowContext *p_context) {
 }
 
 void ReturnStmt::control_flow(FlowContext *p_context) {
-  // TODO check if types are compatible
-  fatal_error("Not Yet Implemented");
+  p_context->has_return = true;
+
+  if (m_return_value == nullptr && p_context->return_type->m_kind != DataType::TypeKind::TYPE_VOID) {
+    SemanticContext::error(this, "Non-void function should return a value");
+    return;
+  }
+
+  SharedDataType ret_type = m_return_value->m_data_type;
+  SharedDataType func_type = p_context->return_type;
+
+  if (!ret_type->compatible(*func_type)) {
+    // Returning 'struct s' from a function with incompatible result type 'int'
+    SemanticContext::error(this, std::format(R"(Returning "{}" from a function with incompatible result type "{}")",
+                                             ret_type->to_string(), func_type->to_string()));
+    return;
+  }
+
+  m_return_value = implicit_cast(std::move(m_return_value), func_type);
 }
 
 void DeclarationNode::control_flow(FlowContext *p_context) { return; }
@@ -902,6 +1116,10 @@ void FunctionDefinition::control_flow(FlowContext *p_context) {
   context->return_type = dynamic_cast<FunctionType *>(m_data_type.get())->m_return_type;
 
   m_body->control_flow(context.get());
+
+  if (!context->has_return && context->return_type->m_kind != DataType::TypeKind::TYPE_VOID) {
+    SemanticContext::error(this, "control reaches end of non-void function with no return");
+  }
 }
 
 void TranslationUnit::control_flow(FlowContext *p_context) {

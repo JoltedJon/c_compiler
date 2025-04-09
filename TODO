@@ -9,9 +9,12 @@ Syntax Analysis:
 - Struct and union parsing needs to be implemented
 - Declarator lists needs to be implemented
 - Initalizer lists
+- Right-to-Left associativity is not implemented correctly
 - Many TODOs that are not currently finished need to be implemented
 
 Lexing:
 
 - String concatenation is not implemented and this will cause errors if anyone uses that feature.
+- Test macros extensively
+- Some macros haven't been added yet
 - Any TODO that hasn't been implemented yet

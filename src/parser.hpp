@@ -67,6 +67,7 @@ class Parser {
   UniqueExpression parse_call(UniqueExpression p_previous_operand);
   UniqueExpression parse_subscript(UniqueExpression p_previous_operand);
   UniqueExpression parse_binary_operation(UniqueExpression p_previous_operand);
+  UniqueExpression parse_assignment_operation(UniqueExpression p_previous_operand);
   UniqueExpression parse_unary_operation(UniqueExpression p_previous_operand);
   UniqueExpression parse_ternary_operator(UniqueExpression p_previous_operand);
   UniqueExpression parse_member_access(UniqueExpression p_previous_operand);

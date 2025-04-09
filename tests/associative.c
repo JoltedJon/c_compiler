@@ -8,6 +8,9 @@ void foo() {
   int i6 = 4 / 2 / 2;
   int i7 = 1 << 2 << 3;
 
-// TODO right associative tests
-#error Not yet Implemented
+  i1 = i2 = i3 = i4 = i5 = i6 = i7;
+
+  i1 += i2 -= i3 * i4;
+  // (i2 == i3) ? (i2 == i4 ? (i2 == i5 ? 3 : 2) : 1) : 0
+  i1 = i2 == i3 ? i2 == i4 ? i2 == i5 ? 3 : 2 : 1 : 0;
 }

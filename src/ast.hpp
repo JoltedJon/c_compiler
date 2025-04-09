@@ -101,6 +101,8 @@ struct DataType {
             m_kind != TypeKind::TYPE_VOID);
   }
 
+  virtual inline bool compatible(const DataType &p_rhs) const { return operator==(p_rhs); }
+
   template <typename T>
   inline LiteralType cast(T castee) {
     if (m_kind == TypeKind::TYPE_FLOAT) {
@@ -139,10 +141,8 @@ struct DataType {
 
   // Graph Generation Debugging functions
   std::string to_string() const;
-  virtual void graph_gen(const void *parent_id, const std::string &connection, const std::string &name,
+  virtual void graph_gen(const void *parent_id, const void *id, const std::string &connection, const std::string &name,
                          std::ostream &out) const;
-  void graph_gen(const void *parent_id, const void *child_id, const std::string &name, const std::string &connection,
-                 std::ostream &out) const;
 };
 
 struct StructUnionType : public DataType {
@@ -166,8 +166,11 @@ struct StructUnionType : public DataType {
     }
     return true;
   }
+
+  virtual bool compatible(const DataType &p_rhs) const override;
+
   virtual SharedDataType clone() const override { return std::make_shared<DataType>(*this); }
-  virtual void graph_gen(const void *parent_id, const std::string &connection, const std::string &name,
+  virtual void graph_gen(const void *parent_id, const void *id, const std::string &connection, const std::string &name,
                          std::ostream &out) const override;
 };
 
@@ -186,8 +189,10 @@ struct FunctionType : public DataType {
 
   FunctionType() { m_kind = TypeKind::TYPE_FUNCTION; }
 
+  virtual bool compatible(const DataType &p_rhs) const override;
+
   virtual SharedDataType clone() const override { return std::make_shared<DataType>(*this); }
-  virtual void graph_gen(const void *parent_id, const std::string &connection, const std::string &name,
+  virtual void graph_gen(const void *parent_id, const void *id, const std::string &connection, const std::string &name,
                          std::ostream &out) const override;
 };
 
@@ -199,9 +204,10 @@ struct PointerType : public DataType {
   virtual inline bool is_complete() const override {
     return *m_base_type == TypeKind::TYPE_POINTER || m_base_type->is_complete();
   }
+  virtual bool compatible(const DataType &p_rhs) const override;
 
   virtual SharedDataType clone() const override { return std::make_shared<DataType>(*this); }
-  virtual void graph_gen(const void *parent_id, const std::string &connection, const std::string &name,
+  virtual void graph_gen(const void *parent_id, const void *id, const std::string &connection, const std::string &name,
                          std::ostream &out) const override;
 };
 
@@ -211,9 +217,10 @@ struct ArrayType : public DataType {
   ArrayType() { m_kind = TypeKind::TYPE_ARRAY; }
 
   virtual inline bool is_complete() const override { return m_size > 0 && m_base_type->is_complete(); }
+  virtual bool compatible(const DataType &p_rhs) const override;
 
   virtual SharedDataType clone() const override { return std::make_shared<DataType>(*this); }
-  virtual void graph_gen(const void *parent_id, const std::string &connection, const std::string &name,
+  virtual void graph_gen(const void *parent_id, const void *id, const std::string &connection, const std::string &name,
                          std::ostream &out) const override;
 };
 
@@ -289,7 +296,7 @@ struct ExpressionNode : public Node {
   virtual UniqueExpression constant_fold() override;
   virtual void control_flow(FlowContext *context) override;
 
-  void graph_gen_type(std::ostream &out) const;
+  void graph_gen_type(const void *parent_id, std::ostream &out) const;
 
  protected:
   ExpressionNode() = default;
@@ -366,6 +373,8 @@ struct BinaryOpNode : public ExpressionNode {
     OP_RIGHT_SHIFT_ASSIGN,
     // Array Subscript
     OP_ARRAY_SUBSCRIPT,
+    // Comma
+    OP_COMMA
   };
 
   OpType m_operation = OpType::OP_ADDITION;
@@ -786,7 +795,7 @@ struct DeclarationNode : public Node {
   virtual void find_labels(std::unordered_set<std::string> *labels) override;
   virtual void control_flow(FlowContext *context) override;
 
-  void graph_gen_type(std::ostream &out) const;
+  void graph_gen_type(const void *parent_id, std::ostream &out) const;
 
  protected:
   DeclarationNode() = default;

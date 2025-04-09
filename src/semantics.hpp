@@ -16,14 +16,16 @@ struct SemanticContext {
   // Static members
 
   static std::unordered_map<std::string, SharedDataType> base_types;
-  static bool has_error;
+  static int num_errors;
   static void error(const Node *node, const std::string &message);
+  static bool has_error() { return num_errors > 0; }
 };
 
 struct FlowContext {
   SharedDataType return_type = nullptr;
   int in_loop = 0;
   int in_switch = 0;
+  bool has_return = false;
 };
 
 }  // namespace JCC

@@ -21,30 +21,29 @@ void Compiler::compile(std::string filename) {
   SemanticContext::base_types = p.get_base_types();
 
   program->find_labels(nullptr);
-  if (SemanticContext::has_error) {
+  if (SemanticContext::has_error()) {
     return;
   }
 
   program->resolve_identifiers(nullptr);
-  if (SemanticContext::has_error) {
+  if (SemanticContext::has_error()) {
     return;
   }
 
   program->resolve_types();
-  if (SemanticContext::has_error) {
+  if (SemanticContext::has_error()) {
     return;
   }
 
   program->constant_fold();
-  if (SemanticContext::has_error) {
+  if (SemanticContext::has_error()) {
     return;
   }
 
   program->control_flow(nullptr);
-  if (SemanticContext::has_error) {
+  if (SemanticContext::has_error()) {
     return;
   }
-
   p.graph_gen(std::cout, program.get());
 }
 

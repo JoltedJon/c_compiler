@@ -1,6 +1,5 @@
 #include "parser.hpp"
 
-#include <bit>
 #include <cassert>
 #include <cstdlib>
 #include <format>
@@ -68,12 +67,6 @@ Parser::Parser(Lexer &lex) {
   register_base_type("double", DataType::TypeKind::TYPE_FLOAT, true, 8);
 
   register_base_type("void", DataType::TypeKind::TYPE_VOID, false, 0);
-
-  SharedDataType const_char = get_type("unsigned char")->clone();
-  const_char->set_qualifiers({TypeQualifier::CONST});
-  PointerType *string_type = new PointerType();
-  string_type->m_base_type = const_char;
-  push_type("string type", SharedDataType(string_type));
 
   register_base_type("unresolved type", DataType::TypeKind::TYPE_UNRESOLVED, false, 0);
 }
@@ -144,20 +137,20 @@ Parser::ParseRule *Parser::get_rule(Token::Type p_token_type) {
       {nullptr, &Parser::parse_ternary_operator, Precedence::PREC_TERNARY},  //     QUESTION
 
       // Assignment
-      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     EQUAL
-      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     PLUS_EQUAL
-      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     MINUS_EQUAL
-      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     STAR_EQUAL
-      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     SLASH_EQUAL
-      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     PERCENT_EQUAL
-      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     AMPERSAND_EQUAL
-      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     PIPE_EQUAL
-      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     CARET_EQUAL
-      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     SHIFT_RIGHT_EQUAL
-      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_ASSIGNMENT},  //     SHIFT_LEFT_EQUAL
+      {nullptr, &Parser::parse_assignment_operation, Precedence::PREC_ASSIGNMENT},  //     EQUAL
+      {nullptr, &Parser::parse_assignment_operation, Precedence::PREC_ASSIGNMENT},  //     PLUS_EQUAL
+      {nullptr, &Parser::parse_assignment_operation, Precedence::PREC_ASSIGNMENT},  //     MINUS_EQUAL
+      {nullptr, &Parser::parse_assignment_operation, Precedence::PREC_ASSIGNMENT},  //     STAR_EQUAL
+      {nullptr, &Parser::parse_assignment_operation, Precedence::PREC_ASSIGNMENT},  //     SLASH_EQUAL
+      {nullptr, &Parser::parse_assignment_operation, Precedence::PREC_ASSIGNMENT},  //     PERCENT_EQUAL
+      {nullptr, &Parser::parse_assignment_operation, Precedence::PREC_ASSIGNMENT},  //     AMPERSAND_EQUAL
+      {nullptr, &Parser::parse_assignment_operation, Precedence::PREC_ASSIGNMENT},  //     PIPE_EQUAL
+      {nullptr, &Parser::parse_assignment_operation, Precedence::PREC_ASSIGNMENT},  //     CARET_EQUAL
+      {nullptr, &Parser::parse_assignment_operation, Precedence::PREC_ASSIGNMENT},  //     SHIFT_RIGHT_EQUAL
+      {nullptr, &Parser::parse_assignment_operation, Precedence::PREC_ASSIGNMENT},  //     SHIFT_LEFT_EQUAL
 
       // Comma
-      {nullptr, nullptr, Precedence::PREC_COMMA},  //     COMMA
+      {nullptr, &Parser::parse_binary_operation, Precedence::PREC_COMMA},  //     COMMA
 
       // Literals
       {&Parser::parse_identifier, nullptr, Precedence::PREC_NONE},  //     IDENTIFIER
@@ -237,7 +230,7 @@ UniqueExpression Parser::parse_precedence(Parser::Precedence p_precedence) {
   UniqueExpression previous_operand = (this->*prefix_rule)(nullptr);
 
   while (p_precedence <= get_rule(m_current_tok.m_type)->precedence) {
-    if (previous_operand == nullptr) {
+    if (previous_operand == nullptr || check(Token::Type::COLON)) {
       return previous_operand;
     }
 
@@ -344,24 +337,11 @@ UniqueExpression Parser::parse_binary_operation(UniqueExpression p_previous_oper
       {Token::Type::PIPE, BinaryOpNode::OpType::OP_BIT_OR},
       {Token::Type::AMPERSAND_AMPERSAND, BinaryOpNode::OpType::OP_LOGIC_AND},
       {Token::Type::PIPE_PIPE, BinaryOpNode::OpType::OP_LOGIC_OR},
-      {Token::Type::EQUAL, BinaryOpNode::OpType::OP_ASSIGN},
-      {Token::Type::PLUS_EQUAL, BinaryOpNode::OpType::OP_ADD_ASSIGN},
-      {Token::Type::MINUS_EQUAL, BinaryOpNode::OpType::OP_SUBTRACT_ASSIGN},
-      {Token::Type::STAR_EQUAL, BinaryOpNode::OpType::OP_MULTIPLY_ASSIGN},
-      {Token::Type::SLASH_EQUAL, BinaryOpNode::OpType::OP_DIVIDE_ASSIGN},
-      {Token::Type::PERCENT_EQUAL, BinaryOpNode::OpType::OP_MODULO_ASSIGN},
-      {Token::Type::AMPERSAND_EQUAL, BinaryOpNode::OpType::OP_BITWISE_AND_ASSIGN},
-      {Token::Type::PIPE_EQUAL, BinaryOpNode::OpType::OP_BITWISE_OR_ASSIGN},
-      {Token::Type::CARET_EQUAL, BinaryOpNode::OpType::OP_BITWISE_XOR_ASSIGN},
-      {Token::Type::SHIFT_RIGHT_EQUAL, BinaryOpNode::OpType::OP_LEFT_SHIFT_ASSIGN},
-      {Token::Type::SHIFT_LEFT_EQUAL, BinaryOpNode::OpType::OP_RIGHT_SHIFT_ASSIGN}};
+      {Token::Type::COMMA, BinaryOpNode::OpType::OP_COMMA}};
 
   Token op = m_previous_tok;
   BinaryOpNode *operation = alloc_node<BinaryOpNode>();
 
-  // TODO Ensure Associativity is correct
-  // Right to Left:
-  // = += -= *= /= %= <<= >>= &= ^= |=
   Precedence precedence = (Precedence)(get_rule(op.m_type)->precedence + 1);
   operation->m_left_operand = std::move(p_previous_operand);
   operation->m_right_operand = parse_precedence(precedence);
@@ -382,9 +362,48 @@ UniqueExpression Parser::parse_binary_operation(UniqueExpression p_previous_oper
   return UniqueExpression(operation);
 }
 
+UniqueExpression Parser::parse_assignment_operation(UniqueExpression p_previous_operand) {
+  static std::unordered_map<Token::Type, BinaryOpNode::OpType> assignOps = {
+      {Token::Type::EQUAL, BinaryOpNode::OpType::OP_ASSIGN},
+      {Token::Type::PLUS_EQUAL, BinaryOpNode::OpType::OP_ADD_ASSIGN},
+      {Token::Type::MINUS_EQUAL, BinaryOpNode::OpType::OP_SUBTRACT_ASSIGN},
+      {Token::Type::STAR_EQUAL, BinaryOpNode::OpType::OP_MULTIPLY_ASSIGN},
+      {Token::Type::SLASH_EQUAL, BinaryOpNode::OpType::OP_DIVIDE_ASSIGN},
+      {Token::Type::PERCENT_EQUAL, BinaryOpNode::OpType::OP_MODULO_ASSIGN},
+      {Token::Type::AMPERSAND_EQUAL, BinaryOpNode::OpType::OP_BITWISE_AND_ASSIGN},
+      {Token::Type::PIPE_EQUAL, BinaryOpNode::OpType::OP_BITWISE_OR_ASSIGN},
+      {Token::Type::CARET_EQUAL, BinaryOpNode::OpType::OP_BITWISE_XOR_ASSIGN},
+      {Token::Type::SHIFT_RIGHT_EQUAL, BinaryOpNode::OpType::OP_LEFT_SHIFT_ASSIGN},
+      {Token::Type::SHIFT_LEFT_EQUAL, BinaryOpNode::OpType::OP_RIGHT_SHIFT_ASSIGN},
+  };
+
+  Token op = m_previous_tok;
+  BinaryOpNode *operation = alloc_node<BinaryOpNode>();
+
+  Precedence precedence = (Precedence)(get_rule(op.m_type)->precedence);
+  operation->m_left_operand = std::move(p_previous_operand);
+  operation->m_right_operand = parse_precedence(precedence);
+
+  if (operation->m_right_operand == nullptr) {
+    error(std::format(R"(Expected expression after "{}" operator.)", op.get_type_string()));
+  }
+
+  auto it = assignOps.find(op.m_type);
+
+  if (it == assignOps.end()) {
+    fatal_error(std::format("Unexpected Token: {}", op.get_type_string()));
+  }
+
+  operation->m_operation = it->second;
+  operation->m_data_type = get_type("unresolved type");
+
+  return UniqueExpression(operation);
+}
+
 UniqueExpression Parser::parse_unary_operation(UniqueExpression p_previous_operand) {
   Token::Type op_type = m_previous_tok.m_type;
   UnaryOpNode *operation = alloc_node<UnaryOpNode>();
+  UniqueExpression uniq_op = UniqueExpression(operation);
   operation->m_operand = parse_precedence(Precedence::PREC_UNARY);
 
   switch (op_type) {
@@ -392,70 +411,78 @@ UniqueExpression Parser::parse_unary_operation(UniqueExpression p_previous_opera
       operation->m_operation = UnaryOpNode::OpType::OP_POSITIVE;
       if (!operation->m_operand) {
         error(R"(Expected expression after "+" operator.)");
+        return nullptr;
       }
       break;
     case Token::Type::MINUS:
       operation->m_operation = UnaryOpNode::OpType::OP_POSITIVE;
       if (!operation->m_operand) {
         error(R"(Expected expression after "-" operator.)");
+        return nullptr;
       }
       break;
     case Token::Type::PLUS_PLUS:
       operation->m_operation = UnaryOpNode::OpType::OP_POSITIVE;
       if (!operation->m_operand) {
         error(R"(Expected expression after "++" operator.)");
+        return nullptr;
       }
       break;
     case Token::Type::MINUS_MINUS:
       operation->m_operation = UnaryOpNode::OpType::OP_POSITIVE;
       if (!operation->m_operand) {
         error(R"(Expected expression after "--" operator.)");
+        return nullptr;
       }
       break;
     case Token::Type::BANG:
       operation->m_operation = UnaryOpNode::OpType::OP_LOGIC_NOT;
       if (!operation->m_operand) {
         error(R"(Expected expression after "!" operator.)");
+        return nullptr;
       }
       break;
     case Token::Type::TILDE:
       operation->m_operation = UnaryOpNode::OpType::OP_LOGIC_NOT;
       if (!operation->m_operand) {
         error(R"(Expected expression after "~" operator.)");
+        return nullptr;
       }
       break;
     case Token::Type::AMPERSAND:
       operation->m_operation = UnaryOpNode::OpType::OP_ADDRESS_OF;
       if (!operation->m_operand) {
         error(R"(Expected expression after "&" operator.)");
+        return nullptr;
       }
       break;
     case Token::Type::STAR:
       operation->m_operation = UnaryOpNode::OpType::OP_INDIRECTION;
       if (!operation->m_operand) {
         error(R"(Expected expression after "*" operator.)");
+        return nullptr;
       }
       break;
     case Token::Type::SIZEOF:
       operation->m_operation = UnaryOpNode::OpType::OP_SIZEOF;
       // TODO Parse this expression
       // sizeof ( type-name )
-      // error(R"(Sizeof not yet implemented)");
       break;
     default:
+      return nullptr;
       fatal_error(std::format("Unexpected Token: {}", m_previous_tok.get_type_string()));
   }
 
   operation->m_data_type = get_type("unresolved type");
 
-  return UniqueExpression(operation);
+  return uniq_op;
 }
 
 UniqueExpression Parser::parse_ternary_operator(UniqueExpression p_previous_operand) {
   TernaryOpNode *operation = alloc_node<TernaryOpNode>();
 
   operation->m_condition = std::move(p_previous_operand);
-  operation->m_true_expr = parse_precedence(Precedence::PREC_TERNARY);
+  operation->m_true_expr = parse_expression();
 
   if (operation->m_true_expr == nullptr) {
     error(R"(Expected expression after "?" operator.)");
@@ -579,10 +606,14 @@ UniqueExpression Parser::parse_literal(UniqueExpression p_previous_operand) {
       constant->m_val_type = ConstantNode::ValType::FLOAT;
       constant->m_data_type = get_type("double");
       break;
-    case Token::Type::STRING_LITERAL:
+    case Token::Type::STRING_LITERAL: {
       constant->m_val_type = ConstantNode::ValType::STRING;
-      constant->m_data_type = get_type("string type");
-      break;
+      ArrayType *str_type = new ArrayType;
+      str_type->m_base_type = get_type("unsigned char");
+      str_type->m_size = constant->get_val<std::string>().size() + 1;
+      str_type->m_is_const = true;
+      constant->m_data_type = SharedDataType(str_type);
+    } break;
     default:
       fatal_error(std::format("Unexpected Token: {}", lit.get_type_string()));
   }
