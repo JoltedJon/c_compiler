@@ -4,10 +4,9 @@
 #include <optional>
 #include <type_traits>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
-#include "ast.hpp"
+#include "../ast.hpp"
 #include "lexer.hpp"
 
 namespace JCC {

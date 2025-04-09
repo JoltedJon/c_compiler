@@ -17,8 +17,8 @@ Split into multiple stages:
 #include <memory>
 #include <unordered_map>
 
-#include "ansi_colors.hpp"
-#include "ast.hpp"
+#include "../ansi_colors.hpp"
+#include "../ast.hpp"
 
 namespace JCC {
 

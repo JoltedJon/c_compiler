@@ -12,4 +12,6 @@ sources = [
   'src/main.cpp',
 ]
 
-executable('jcc', sources)
+llvm_dep = dependency('llvm', modules: ['core', 'irreader'], required: true)
+
+executable('jcc', sources, dependencies: [llvm_dep])

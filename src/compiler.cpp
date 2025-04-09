@@ -2,9 +2,9 @@
 
 #include <iostream>
 
-#include "lexer.hpp"
-#include "parser.hpp"
-#include "semantics.hpp"
+#include "frontend/lexer.hpp"
+#include "frontend/parser.hpp"
+#include "frontend/semantics.hpp"
 
 namespace JCC {
 

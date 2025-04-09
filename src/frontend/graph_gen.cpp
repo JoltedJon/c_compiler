@@ -2,7 +2,7 @@
 
 #include <sstream>
 
-#include "ansi_colors.hpp"
+#include "../ansi_colors.hpp"
 #include "parser.hpp"
 #include "src/ast.hpp"
 

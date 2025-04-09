@@ -10,8 +10,8 @@
 #include <unordered_set>
 #include <utility>
 
-#include "ansi_colors.hpp"
-#include "ast.hpp"
+#include "../ansi_colors.hpp"
+#include "../ast.hpp"
 #include "lexer.hpp"
 
 namespace JCC {

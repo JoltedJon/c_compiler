@@ -1,12 +1,14 @@
 #pragma once
 
+#include <llvm-18/llvm/IR/Value.h>
+
 #include <cassert>
 #include <cstdint>
 #include <memory>
 #include <unordered_set>
 #include <vector>
 
-#include "lexer.hpp"
+#include "frontend/lexer.hpp"
 
 namespace JCC {
 
@@ -272,6 +274,9 @@ struct Node {
   virtual SharedDataType resolve_types() = 0;
   virtual UniqueExpression constant_fold() = 0;
   virtual void control_flow(FlowContext *context) = 0;
+
+  // Code Generation
+  virtual llvm::Value *codegen() = 0;
 
   // Graph Generation For debugging
   virtual std::string to_string() const = 0;

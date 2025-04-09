@@ -9,6 +9,7 @@ I also want a better grasp of how compilers work and what makes a good design.
 ### Prerequisites
 
 - [Meson build system](https://mesonbuild.com/index.html)
+- [LLVM](https://llvm.org/)
 
 ### Building and Running
 
