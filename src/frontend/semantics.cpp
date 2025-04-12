@@ -28,12 +28,12 @@ int SemanticContext::num_errors = 0;
 // Debug
 std::string stage = "";
 
-#define fatal_error(p_error_message)                                                                                   \
-  do {                                                                                                                 \
-    std::cerr << ANSI_COLOR_RED << "Fatal Error - Please Report Bug: " << ANSI_COLOR_RESET << "\n\t" << stage          \
-              << "\n\t" << __PRETTY_FUNCTION__ << "\n\t" << __FILE__ << ":" << __LINE__ << "\n\t" << (p_error_message) \
-              << std::endl;                                                                                            \
-    std::abort();                                                                                                      \
+#define fatal_error(p_error_message)                                                                          \
+  do {                                                                                                        \
+    std::cerr << ANSI_COLOR_RED << "Fatal Error - Please Report Bug: " << ANSI_COLOR_RESET << "\n\t" << stage \
+              << "\n\t" << __PRETTY_FUNCTION__ << "\n\t" << __FILE__ << ":" << __LINE__                       \
+              << "\n\tSemantic Analysis:" << (p_error_message) << std::endl;                                  \
+    std::abort();                                                                                             \
   } while (0)
 
 void SemanticContext::error(const Node *node, const std::string &p_error_message) {
@@ -76,7 +76,7 @@ bool StructUnionType::compatible(const DataType &p_rhs) const {
 
   if (!p_rhs.is_complete() && !is_complete()) return true;
 
-  const StructUnionType rhs = dynamic_cast<const StructUnionType &>(p_rhs);
+  const StructUnionType rhs = static_cast<const StructUnionType &>(p_rhs);
   if (!m_name.empty() && m_name != rhs.m_name) return false;
 
   if (m_fields.size() != rhs.m_fields.size()) return false;
@@ -95,7 +95,7 @@ bool StructUnionType::compatible(const DataType &p_rhs) const {
 bool FunctionType::compatible(const DataType &p_rhs) const {
   if (p_rhs.m_kind != TypeKind::TYPE_FUNCTION) return false;
 
-  const FunctionType rhs = dynamic_cast<const FunctionType &>(p_rhs);
+  const FunctionType rhs = static_cast<const FunctionType &>(p_rhs);
 
   if (!m_return_type->compatible(*rhs.m_return_type)) return false;
 
@@ -114,7 +114,7 @@ bool FunctionType::compatible(const DataType &p_rhs) const {
 bool PointerType::compatible(const DataType &p_rhs) const {
   if (p_rhs.m_kind != TypeKind::TYPE_POINTER) return false;
 
-  const PointerType rhs = dynamic_cast<const PointerType &>(p_rhs);
+  const PointerType rhs = static_cast<const PointerType &>(p_rhs);
 
   if (m_base_type->m_kind == TypeKind::TYPE_VOID || rhs.m_base_type->m_kind == TypeKind::TYPE_VOID) return true;
 
@@ -124,7 +124,7 @@ bool PointerType::compatible(const DataType &p_rhs) const {
 bool ArrayType::compatible(const DataType &p_rhs) const {
   if (p_rhs.m_kind != DataType::TypeKind::TYPE_ARRAY) return false;
 
-  const ArrayType rhs = dynamic_cast<const ArrayType &>(p_rhs);
+  const ArrayType rhs = static_cast<const ArrayType &>(p_rhs);
 
   if (!m_base_type->compatible(*rhs.m_base_type)) return false;
 
@@ -215,8 +215,14 @@ SharedDataType arithmetic_conversion(UniqueExpression &lhs, UniqueExpression &rh
 /////////////////////////////////////////////////////////////////////////////////////////
 // Finding Labels
 
-void ExpressionNode::find_labels(std::unordered_set<std::string> *labels) { return; }
-void StatementNode::find_labels(std::unordered_set<std::string> *labels) { return; }
+void ExpressionNode::find_labels(std::unordered_set<std::string> *labels) {
+  (void)labels;
+  return;
+}
+void StatementNode::find_labels(std::unordered_set<std::string> *labels) {
+  (void)labels;
+  return;
+}
 
 void LabelStmt::find_labels(std::unordered_set<std::string> *labels) {
   auto [it, inserted] = labels->insert(m_label);
@@ -242,15 +248,20 @@ void IfStmt::find_labels(std::unordered_set<std::string> *labels) {
 void SwitchStmt::find_labels(std::unordered_set<std::string> *labels) { m_stmt->find_labels(labels); }
 void WhileStmt::find_labels(std::unordered_set<std::string> *labels) { m_stmt->find_labels(labels); }
 void ForStmt::find_labels(std::unordered_set<std::string> *labels) { m_stmt->find_labels(labels); }
-void DeclarationNode::find_labels(std::unordered_set<std::string> *labels) { return; }
+void DeclarationNode::find_labels(std::unordered_set<std::string> *labels) {
+  (void)labels;
+  return;
+}
 
 void FunctionDefinition::find_labels(std::unordered_set<std::string> *p_labels) {
+  (void)p_labels;
   if (m_body == nullptr) return;
   m_body->find_labels(&labels);
 }
 
 void TranslationUnit::find_labels(std::unordered_set<std::string> *p_labels) {
   stage = "finding labels";
+  (void)p_labels;
   for (auto &decl : m_program) {
     decl->find_labels(nullptr);
   }
@@ -259,7 +270,10 @@ void TranslationUnit::find_labels(std::unordered_set<std::string> *p_labels) {
 /////////////////////////////////////////////////////////////////////////////////////////
 // Identifier Resolving
 
-void ExpressionNode::resolve_identifiers(SemanticContext *context) { return; };
+void ExpressionNode::resolve_identifiers(SemanticContext *context) {
+  (void)context;
+  return;
+};
 
 void UnaryOpNode::resolve_identifiers(SemanticContext *context) { m_operand->resolve_identifiers(context); }
 
@@ -287,14 +301,17 @@ void CallNode::resolve_identifiers(SemanticContext *context) {
 void IdentifierNode::resolve_identifiers(SemanticContext *context) {
   SharedDataType identifier_type = context->get_identifier_type(m_name);
   if (identifier_type == nullptr) {
-    context->error(dynamic_cast<Node *>(this), std::format(R"(use of undeclared identifier "{}")", m_name));
+    context->error(this, std::format(R"(use of undeclared identifier "{}")", m_name));
     return;
   }
 
   m_data_type = identifier_type;
 }
 
-void StatementNode::resolve_identifiers(SemanticContext *context) { return; }
+void StatementNode::resolve_identifiers(SemanticContext *context) {
+  (void)context;
+  return;
+}
 
 void CompoundStmt::resolve_identifiers(SemanticContext *context) {
   std::unique_ptr<SemanticContext> new_context = std::make_unique<SemanticContext>();
@@ -395,7 +412,7 @@ void ArrayDeclaration::resolve_identifiers(SemanticContext *context) {
 void TranslationUnit::resolve_identifiers(SemanticContext *context) {
   stage = "resolving identifiers";
   std::unique_ptr<SemanticContext> new_context = std::make_unique<SemanticContext>();
-  new_context->previous_context = nullptr;
+  new_context->previous_context = context;
 
   for (auto &decl : m_program) {
     decl->resolve_identifiers(new_context.get());
@@ -477,7 +494,7 @@ SharedDataType UnaryOpNode::resolve_types() {
       }
     case OpType::OP_INDIRECTION:
       if (*operand_type == DataType::TypeKind::TYPE_ARRAY) {
-        m_data_type = dynamic_cast<ArrayType *>(operand_type.get())->m_base_type;
+        m_data_type = static_cast<ArrayType *>(operand_type.get())->m_base_type;
         m_is_lvalue = true;
       }
       else if (*operand_type == DataType::TypeKind::TYPE_FUNCTION) {
@@ -489,7 +506,7 @@ SharedDataType UnaryOpNode::resolve_types() {
       }
       else if (*operand_type == DataType::TypeKind::TYPE_POINTER) {
         m_is_lvalue = true;
-        m_data_type = dynamic_cast<PointerType *>(operand_type.get())->m_base_type;
+        m_data_type = static_cast<PointerType *>(operand_type.get())->m_base_type;
         return m_data_type;
       }
       else {
@@ -497,6 +514,7 @@ SharedDataType UnaryOpNode::resolve_types() {
             this, std::format(R"(indirection requires pointer type, "{}" is invalid)", operand_type->to_string()));
         return nullptr;
       }
+      break;
     case OpType::OP_SIZEOF:
       m_data_type = std::make_shared<DataType>(DataType::TypeKind::TYPE_INT, false, 4);
       m_is_lvalue = false;
@@ -541,6 +559,8 @@ SharedDataType BinaryOpNode::resolve_types() {
       if ((right_type->m_kind == DataType::TypeKind::TYPE_POINTER && right_type->is_complete() &&
            left_type->is_integer())) {
         m_data_type = right_type;
+        // Ensure left operand is always pointer
+        std::swap(m_left_operand, m_right_operand);
         return m_data_type;
       }
       break;
@@ -548,12 +568,15 @@ SharedDataType BinaryOpNode::resolve_types() {
       // Pointer - Pointer
       if (left_type->m_kind == DataType::TypeKind::TYPE_POINTER && left_type->m_kind == right_type->m_kind &&
           left_type->compatible(*right_type)) {
-        m_data_type = left_type;
+        m_left_operand = implicit_cast(std::move(m_left_operand), SemanticContext::base_types["signed long"]);
+        m_right_operand = implicit_cast(std::move(m_right_operand), SemanticContext::base_types["signed long"]);
+        m_data_type = m_left_operand->m_data_type;
         return m_data_type;
       }
       // Pointer - Index
       if (left_type->m_kind == DataType::TypeKind::TYPE_POINTER && left_type->is_complete() &&
           right_type->is_integer()) {
+        m_right_operand = implicit_cast(std::move(m_right_operand), SemanticContext::base_types["signed long"]);
         m_data_type = left_type;
         return m_data_type;
       }
@@ -628,60 +651,18 @@ SharedDataType BinaryOpNode::resolve_types() {
         return m_data_type;
       }
       break;
-    case OpType::OP_ADD_ASSIGN:
-      m_data_type = left_type;
-      // Val + Val
-      if (left_type->is_arithemtic() && right_type->is_arithemtic()) {
-        m_right_operand = implicit_cast(std::move(m_right_operand), left_type);
-        return m_data_type;
-      }
-      // Pointer + Index
-      if ((left_type->m_kind == DataType::TypeKind::TYPE_POINTER && left_type->is_complete() &&
-           right_type->is_integer())) {
-        return m_data_type;
-      }
-      break;
-    case OpType::OP_SUBTRACT_ASSIGN:
-      m_data_type = left_type;
-      // Pointer - Pointer
-      if (left_type->m_kind == DataType::TypeKind::TYPE_POINTER && left_type->m_kind == right_type->m_kind &&
-          left_type->compatible(*right_type)) {
-        return m_data_type;
-      }
-      // Pointer - Index
-      if (left_type->m_kind == DataType::TypeKind::TYPE_POINTER && left_type->is_complete() &&
-          right_type->is_integer()) {
-        return m_data_type;
-      }
-      // Val - Val
-      if (left_type->is_arithemtic() && right_type->is_arithemtic()) {
-        m_data_type = arithmetic_conversion(m_left_operand, m_right_operand);
-        return m_data_type;
-      }
-      break;
-    case OpType::OP_MULTIPLY_ASSIGN:
-    case OpType::OP_DIVIDE_ASSIGN:
-    case OpType::OP_MODULO_ASSIGN:
-    case OpType::OP_BITWISE_AND_ASSIGN:
-    case OpType::OP_BITWISE_OR_ASSIGN:
-    case OpType::OP_BITWISE_XOR_ASSIGN:
-    case OpType::OP_LEFT_SHIFT_ASSIGN:
-    case OpType::OP_RIGHT_SHIFT_ASSIGN:
-      m_data_type = left_type;
-      if (left_type->is_arithemtic() && right_type->is_arithemtic()) {
-        m_right_operand = implicit_cast(std::move(m_right_operand), left_type);
-        return m_data_type;
-      }
     case OpType::OP_ARRAY_SUBSCRIPT: {
       m_is_lvalue = true;
 
       PointerType *pointer_expr = nullptr;
       DataType *integer_expr = nullptr;
       if (left_type->m_kind == DataType::TypeKind::TYPE_POINTER) {
-        pointer_expr = dynamic_cast<PointerType *>(left_type.get());
+        pointer_expr = static_cast<PointerType *>(left_type.get());
       }
       else if (right_type->m_kind == DataType::TypeKind::TYPE_POINTER) {
-        pointer_expr = dynamic_cast<PointerType *>(right_type.get());
+        pointer_expr = static_cast<PointerType *>(right_type.get());
+        // Ensure left_operand is always pointer type
+        std::swap(m_left_operand, m_right_operand);
       }
 
       if (left_type->is_integer()) {
@@ -744,8 +725,8 @@ SharedDataType TernaryOpNode::resolve_types() {
     return m_data_type;
   }
 
-  PointerType *true_ptr = dynamic_cast<PointerType *>(true_type.get());
-  PointerType *false_ptr = dynamic_cast<PointerType *>(false_type.get());
+  PointerType *true_ptr = static_cast<PointerType *>(true_type.get());
+  PointerType *false_ptr = static_cast<PointerType *>(false_type.get());
 
   if (true_ptr->m_base_type->m_kind == DataType::TypeKind::TYPE_VOID &&
       true_ptr->m_base_type->m_kind == DataType::TypeKind::TYPE_VOID) {
@@ -786,7 +767,6 @@ SharedDataType MemberAccessNode::resolve_types() {
       base_type = dynamic_cast<StructUnionType *>(dynamic_cast<PointerType *>(expr_type.get())->m_base_type.get());
       break;
     case OpType::OP_DIRECT_MEM_ACCESS:
-      // TODO This supposedly will return nullptr on a bad cast
       base_type = dynamic_cast<StructUnionType *>(expr_type.get());
   }
 
@@ -813,13 +793,26 @@ SharedDataType CallNode::resolve_types() {
 
   if (callee_type == nullptr) return nullptr;
 
-  if (callee_type->m_kind != DataType::TypeKind::TYPE_FUNCTION) {
+  if (callee_type->m_kind != DataType::TypeKind::TYPE_FUNCTION &&
+      callee_type->m_kind != DataType::TypeKind::TYPE_POINTER) {
+  func_err:
     SemanticContext::error(this, std::format(R"(called object type "{}" is not a function or function pointer)",
                                              callee_type->to_string()));
     return nullptr;
   }
 
-  FunctionType *function_type = dynamic_cast<FunctionType *>(callee_type.get());
+  if (callee_type->m_kind == DataType::TypeKind::TYPE_POINTER) {
+    PointerType *ptr_type = static_cast<PointerType *>(callee_type.get());
+    // SPoOooooOky goto
+    if (ptr_type->m_base_type->m_kind != DataType::TypeKind::TYPE_FUNCTION) goto func_err;
+    callee_type = ptr_type->m_base_type;
+
+    // Clear name for LLVM generation
+    m_name = "";
+  }
+
+  FunctionType *function_type = static_cast<FunctionType *>(callee_type.get());
+
   if (m_args.size() > function_type->m_param_types.size()) {
     SemanticContext::error(this, std::format(R"(Too many arguments, expected {}, have {})",
                                              function_type->m_param_types.size(), m_args.size()));
@@ -855,7 +848,7 @@ SharedDataType IdentifierNode::resolve_types() {
     // Identifier of Array type decays to pointer type when used
     PointerType *p_type = new PointerType;
 
-    p_type->m_base_type = dynamic_cast<ArrayType *>(m_data_type.get())->m_base_type;
+    p_type->m_base_type = static_cast<ArrayType *>(m_data_type.get())->m_base_type;
     return SharedDataType(p_type);
   }
 
@@ -1027,9 +1020,15 @@ SharedDataType TranslationUnit::resolve_types() {
 /////////////////////////////////////////////////////////////////////////////////////////
 // Control Flow
 
-void ExpressionNode::control_flow(FlowContext *p_context) { return; }
+void ExpressionNode::control_flow(FlowContext *p_context) {
+  (void)p_context;
+  return;
+}
 
-void StatementNode::control_flow(FlowContext *p_context) { return; }
+void StatementNode::control_flow(FlowContext *p_context) {
+  (void)p_context;
+  return;
+}
 
 void CaseStmt::control_flow(FlowContext *p_context) {
   if (p_context->in_switch == 0) {
@@ -1041,6 +1040,10 @@ void DefaultStmt::control_flow(FlowContext *p_context) {
   if (p_context->in_switch == 0) {
     SemanticContext::error(this, R"("default" statement not in switch statement)");
   }
+  if (p_context->has_default) {
+    SemanticContext::error(this, R"(Multiple default labels in one switch)");
+  }
+  p_context->has_default = true;
 }
 
 void CompoundStmt::control_flow(FlowContext *p_context) {
@@ -1057,9 +1060,11 @@ void IfStmt::control_flow(FlowContext *p_context) {
 }
 
 void SwitchStmt::control_flow(FlowContext *p_context) {
+  bool prev_default = p_context->has_default;
   p_context->in_switch++;
   m_stmt->control_flow(p_context);
   p_context->in_switch--;
+  p_context->has_default = prev_default;
 }
 
 void WhileStmt::control_flow(FlowContext *p_context) {
@@ -1108,12 +1113,16 @@ void ReturnStmt::control_flow(FlowContext *p_context) {
   m_return_value = implicit_cast(std::move(m_return_value), func_type);
 }
 
-void DeclarationNode::control_flow(FlowContext *p_context) { return; }
+void DeclarationNode::control_flow(FlowContext *p_context) {
+  (void)p_context;
+  return;
+}
 
 void FunctionDefinition::control_flow(FlowContext *p_context) {
+  (void)p_context;
   std::unique_ptr<FlowContext> context = std::make_unique<FlowContext>();
 
-  context->return_type = dynamic_cast<FunctionType *>(m_data_type.get())->m_return_type;
+  context->return_type = static_cast<FunctionType *>(m_data_type.get())->m_return_type;
 
   m_body->control_flow(context.get());
 

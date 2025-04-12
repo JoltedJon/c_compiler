@@ -1,16 +1,7 @@
-Semantic Analysis:
+Compiler:
 
-- Checks to see if types are compatible is not implemented
-- Finish checking for returns in non-void function
-
-Syntax Analysis:
-
-- Need to parse function pointer declarations
-- Struct and union parsing needs to be implemented
-- Declarator lists needs to be implemented
-- Initalizer lists
-- Right-to-Left associativity is not implemented correctly
-- Many TODOs that are not currently finished need to be implemented
+- Need to take in command line arguments
+- Target Platform architecture needed for pointer sizes
 
 Lexing:
 
@@ -18,3 +9,24 @@ Lexing:
 - Test macros extensively
 - Some macros haven't been added yet
 - Any TODO that hasn't been implemented yet
+
+Syntax Analysis:
+
+- Switch Statements currently only supported if next statement is compound statement
+- Need to parse function pointer declarations
+- Struct and union parsing needs to be implemented
+- Declarator lists needs to be implemented
+- Initalizer lists
+- Many TODOs that are not currently finished need to be implemented
+
+Semantic Analysis:
+
+- Constants probably only need to be stored in uint64_t or double
+- Test to see if L-Value is correctly Implemented
+- Any TODO not implemented
+
+LLVM Code Gen:
+
+- Array Subscript might want operand to be of type Array if it is known that it is an array?
+- Apply type qualifiers to types
+- Any TODO not done

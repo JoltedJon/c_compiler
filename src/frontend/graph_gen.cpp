@@ -1,16 +1,17 @@
 /* Abstract Syntax Tree Graph generation */
 
+#include "graph_gen.hpp"
+
 #include <sstream>
 
 #include "../ansi_colors.hpp"
-#include "parser.hpp"
 #include "src/ast.hpp"
 
 namespace JCC {
 
 char *id = nullptr;
 
-void Parser::graph_gen(std::ostream &out, const Node *node) const {
+void graph_gen(std::ostream &out, const Node *node) {
   out << ANSI_COLOR_YELLOW "Outputting to GraphViz Compatible format" << ANSI_COLOR_RESET << "\n\n";
 
   id = nullptr;
@@ -82,7 +83,7 @@ void DataType::graph_gen(const void *parent_id, const void *m_id, const std::str
 
 void StructUnionType::graph_gen(const void *p_parent_id, const void *m_id, const std::string &p_connection,
                                 const std::string &p_name, std::ostream &out) const {
-  DataType::graph_gen(p_parent_id, m_id, p_connection, m_name, out);
+  DataType::graph_gen(p_parent_id, m_id, p_connection, p_name, out);
   for (size_t i = 0; i < m_fields.size(); ++i) {
     std::string str = "";
     switch (m_fields[i].m_field_type) {
@@ -100,7 +101,7 @@ void StructUnionType::graph_gen(const void *p_parent_id, const void *m_id, const
 
 void FunctionType::graph_gen(const void *p_parent_id, const void *m_id, const std::string &p_connection,
                              const std::string &p_name, std::ostream &out) const {
-  DataType::graph_gen(p_parent_id, m_id, p_connection, "", out);
+  DataType::graph_gen(p_parent_id, m_id, p_connection, p_name, out);
 
   char *child_id = id++;
   m_return_type->graph_gen(m_id, child_id, "return type", "", out);
@@ -108,14 +109,14 @@ void FunctionType::graph_gen(const void *p_parent_id, const void *m_id, const st
 
 void PointerType::graph_gen(const void *p_parent_id, const void *m_id, const std::string &p_connection,
                             const std::string &p_name, std::ostream &out) const {
-  DataType::graph_gen(p_parent_id, m_id, p_connection, "", out);
+  DataType::graph_gen(p_parent_id, m_id, p_connection, p_name, out);
   char *child_id = id++;
   m_base_type->graph_gen(m_id, child_id, "to", "", out);
 }
 
 void ArrayType::graph_gen(const void *p_parent_id, const void *m_id, const std::string &p_connection,
                           const std::string &p_name, std::ostream &out) const {
-  DataType::graph_gen(p_parent_id, m_id, p_connection, "", out);
+  DataType::graph_gen(p_parent_id, m_id, p_connection, p_name, out);
   char *child_id = id++;
   m_base_type->graph_gen(m_id, child_id, "of", "", out);
 }
@@ -230,26 +231,6 @@ std::string BinaryOpNode::to_string() const {
       return "||";
     case BinaryOpNode::OpType::OP_ASSIGN:
       return "=";
-    case BinaryOpNode::OpType::OP_ADD_ASSIGN:
-      return "+=";
-    case BinaryOpNode::OpType::OP_SUBTRACT_ASSIGN:
-      return "-=";
-    case BinaryOpNode::OpType::OP_MULTIPLY_ASSIGN:
-      return "*=";
-    case BinaryOpNode::OpType::OP_DIVIDE_ASSIGN:
-      return "/=";
-    case BinaryOpNode::OpType::OP_MODULO_ASSIGN:
-      return "%/";
-    case BinaryOpNode::OpType::OP_BITWISE_AND_ASSIGN:
-      return "&=";
-    case BinaryOpNode::OpType::OP_BITWISE_OR_ASSIGN:
-      return "|=";
-    case BinaryOpNode::OpType::OP_BITWISE_XOR_ASSIGN:
-      return "^=";
-    case BinaryOpNode::OpType::OP_LEFT_SHIFT_ASSIGN:
-      return "<<=";
-    case BinaryOpNode::OpType::OP_RIGHT_SHIFT_ASSIGN:
-      return ">>=";
     case BinaryOpNode::OpType::OP_ARRAY_SUBSCRIPT:
       return "[";
     case BinaryOpNode::OpType::OP_COMMA:

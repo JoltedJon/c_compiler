@@ -8,8 +8,8 @@ to not go insane from recompilation times
 #include <stdexcept>
 #include <type_traits>
 
-#include "ansi_colors.hpp"
-#include "ast.hpp"
+#include "../ansi_colors.hpp"
+#include "../ast.hpp"
 #include "semantics.hpp"
 
 #define fatal_error(p_error_message)                                                                 \
@@ -34,6 +34,10 @@ UniqueExpression UnaryOpNode::constant_fold() {
   }
   else {
     operand = std::move(m_operand);
+  }
+
+  if (m_operation == OpType::OP_POSITIVE) {
+    return operand;
   }
 
   if (m_operation == OpType::OP_SIZEOF) {

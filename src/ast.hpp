@@ -276,7 +276,7 @@ struct Node {
   virtual void control_flow(FlowContext *context) = 0;
 
   // Code Generation
-  virtual llvm::Value *codegen() = 0;
+  // virtual llvm::Value *codegen() = 0;
 
   // Graph Generation For debugging
   virtual std::string to_string() const = 0;
@@ -293,8 +293,10 @@ struct ExpressionNode : public Node {
   bool m_is_lvalue = false;
 
   virtual ~ExpressionNode() = default;
+  virtual UniqueExpression clone() const = 0;
 
   // Semantic Analysis
+  virtual llvm::Value *codegen() = 0;
 
   virtual void find_labels(std::unordered_set<std::string> *labels) override;
   virtual void resolve_identifiers(SemanticContext *context) override;
@@ -327,12 +329,20 @@ struct UnaryOpNode : public ExpressionNode {
   UniqueExpression m_operand = nullptr;
 
   UnaryOpNode() { m_node_type = NodeType::UNARY_EXPRESSION; }
+  UnaryOpNode(const UnaryOpNode &other) : UnaryOpNode() {
+    m_data_type = other.m_data_type;
+    m_operation = other.m_operation;
+    m_operand = other.m_operand->clone();
+  }
+  virtual UniqueExpression clone() const override { return std::make_unique<UnaryOpNode>(*this); }
 
   // Semantic Analysis
-
   virtual void resolve_identifiers(SemanticContext *context) override;
   virtual SharedDataType resolve_types() override;
   virtual UniqueExpression constant_fold() override;
+
+  // Code Generation
+  virtual llvm::Value *codegen() override;
 
   // Graph Generation
   virtual std::string to_string() const override;
@@ -366,16 +376,6 @@ struct BinaryOpNode : public ExpressionNode {
     OP_LOGIC_OR,
     // Assignment
     OP_ASSIGN,
-    OP_ADD_ASSIGN,
-    OP_SUBTRACT_ASSIGN,
-    OP_MULTIPLY_ASSIGN,
-    OP_DIVIDE_ASSIGN,
-    OP_MODULO_ASSIGN,
-    OP_BITWISE_AND_ASSIGN,
-    OP_BITWISE_OR_ASSIGN,
-    OP_BITWISE_XOR_ASSIGN,
-    OP_LEFT_SHIFT_ASSIGN,
-    OP_RIGHT_SHIFT_ASSIGN,
     // Array Subscript
     OP_ARRAY_SUBSCRIPT,
     // Comma
@@ -387,12 +387,21 @@ struct BinaryOpNode : public ExpressionNode {
   UniqueExpression m_right_operand = nullptr;
 
   BinaryOpNode() { m_node_type = NodeType::BINARY_EXPRESSION; }
+  BinaryOpNode(const BinaryOpNode &other) : BinaryOpNode() {
+    m_data_type = other.m_data_type;
+    m_operation = other.m_operation;
+    m_left_operand = other.m_left_operand->clone();
+    m_right_operand = other.m_right_operand->clone();
+  }
+  virtual UniqueExpression clone() const override { return std::make_unique<BinaryOpNode>(*this); }
 
   // Semantic Analysis
-
   virtual void resolve_identifiers(SemanticContext *context) override;
   virtual SharedDataType resolve_types() override;
   virtual UniqueExpression constant_fold() override;
+
+  // Code Generation
+  virtual llvm::Value *codegen() override;
 
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
@@ -404,12 +413,21 @@ struct TernaryOpNode : public ExpressionNode {
   UniqueExpression m_false_expr = nullptr;
 
   TernaryOpNode() { m_node_type = NodeType::TERNARY_EXPRESSION; }
+  TernaryOpNode(const TernaryOpNode &other) : TernaryOpNode() {
+    m_data_type = other.m_data_type;
+    m_condition = other.m_condition->clone();
+    m_true_expr = other.m_true_expr->clone();
+    m_false_expr = other.m_false_expr->clone();
+  }
+  virtual UniqueExpression clone() const override { return std::make_unique<TernaryOpNode>(*this); }
 
   // Semantic Analysis
-
   virtual void resolve_identifiers(SemanticContext *context) override;
   virtual SharedDataType resolve_types() override;
   virtual UniqueExpression constant_fold() override;
+
+  // Code Generation
+  virtual llvm::Value *codegen() override;
 
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
@@ -426,12 +444,21 @@ struct MemberAccessNode : public ExpressionNode {
   std::string m_member;
 
   MemberAccessNode() { m_node_type = NodeType::MEMBER_ACCESS_EXPRESSION; }
+  MemberAccessNode(const MemberAccessNode &other) : MemberAccessNode() {
+    m_data_type = other.m_data_type;
+    m_access_type = other.m_access_type;
+    m_member = other.m_member;
+    m_expr = other.m_expr->clone();
+  }
+  virtual UniqueExpression clone() const override { return std::make_unique<MemberAccessNode>(*this); }
 
   // Semantic Analysis
-
   virtual void resolve_identifiers(SemanticContext *context) override;
   virtual SharedDataType resolve_types() override;
   virtual UniqueExpression constant_fold() override;
+
+  // Code Generation
+  virtual llvm::Value *codegen() override;
 
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
@@ -443,12 +470,24 @@ struct CallNode : public ExpressionNode {
   std::vector<UniqueExpression> m_args;
 
   CallNode() { m_node_type = NodeType::FUNCTION_CALL; }
+  CallNode(const CallNode &other) : CallNode() {
+    m_data_type = other.m_data_type;
+    m_name = other.m_name;
+    m_callee = other.m_callee->clone();
+    m_args.reserve((other.m_args.size()));
+    for (auto &arg : other.m_args) {
+      m_args.push_back(arg->clone());
+    }
+  }
+  virtual UniqueExpression clone() const override { return std::make_unique<CallNode>(*this); }
 
   // Semantic Analysis
-
   virtual void resolve_identifiers(SemanticContext *context) override;
   virtual SharedDataType resolve_types() override;
   virtual UniqueExpression constant_fold() override;
+
+  // Code Generation
+  virtual llvm::Value *codegen() override;
 
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
@@ -458,11 +497,19 @@ struct IdentifierNode : public ExpressionNode {
   std::string m_name = "";
 
   IdentifierNode() { m_node_type = NodeType::IDENTIFIER; }
+  IdentifierNode(const IdentifierNode &other) : IdentifierNode() {
+    m_data_type = other.m_data_type;
+    m_name = other.m_name;
+  }
+  virtual UniqueExpression clone() const override { return std::make_unique<IdentifierNode>(*this); }
 
   // Semantic Analysis
   virtual void resolve_identifiers(SemanticContext *context) override;
   virtual SharedDataType resolve_types() override;
   virtual UniqueExpression constant_fold() override;
+
+  // Code Generation
+  virtual llvm::Value *codegen() override;
 
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
@@ -572,12 +619,21 @@ struct ConstantNode : public ExpressionNode {
   }
 
   ConstantNode() { m_node_type = NodeType::CONSTANT; }
+  ConstantNode(const ConstantNode &other) : ConstantNode() {
+    m_data_type = other.m_data_type;
+    m_val_type = other.m_val_type;
+    m_value = other.m_value;
+  }
+  virtual UniqueExpression clone() const override { return std::make_unique<ConstantNode>(*this); }
 
   // Semantic Analysis
-
   virtual SharedDataType resolve_types() override;
   virtual UniqueExpression constant_fold() override;
 
+  // Code Generation
+  virtual llvm::Value *codegen() override;
+
+  // Graph Generation
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
 };
@@ -594,6 +650,8 @@ struct StatementNode : public Node {
   virtual UniqueExpression constant_fold() override;
   virtual void control_flow(FlowContext *context) override;
 
+  virtual void codegen() = 0;
+
  protected:
   StatementNode() = default;
 };
@@ -606,6 +664,10 @@ struct LabelStmt : public StatementNode {
   // Semantic Analysis
   virtual void find_labels(std::unordered_set<std::string> *labels) override;
 
+  // Code Generation
+  virtual void codegen() override;
+
+  // Graph Generation
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
 };
@@ -620,6 +682,10 @@ struct CaseStmt : public StatementNode {
   virtual UniqueExpression constant_fold() override;
   virtual void control_flow(FlowContext *context) override;
 
+  // Code Generation
+  virtual void codegen() override;
+
+  // Graph Generation
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
 };
@@ -630,6 +696,10 @@ struct DefaultStmt : public StatementNode {
   // Semantic Analysis
   virtual void control_flow(FlowContext *context) override;
 
+  // Code Generation
+  virtual void codegen() override;
+
+  // Graph Generation
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
 };
@@ -640,13 +710,16 @@ struct CompoundStmt : public StatementNode {
   CompoundStmt() { m_node_type = NodeType::COMPOUND_STATEMENT; }
 
   // Semantic Analysis
-
   virtual void find_labels(std::unordered_set<std::string> *labels) override;
   virtual void resolve_identifiers(SemanticContext *context) override;
   virtual SharedDataType resolve_types() override;
   virtual UniqueExpression constant_fold() override;
   virtual void control_flow(FlowContext *context) override;
 
+  // Code Generation
+  virtual void codegen() override;
+
+  // Graph Generation
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
 };
@@ -657,11 +730,14 @@ struct ExpressionStmt : public StatementNode {
   ExpressionStmt() { m_node_type = NodeType::EXPRESSION_STATEMENT; }
 
   // Semantic Analysis
-
   virtual void resolve_identifiers(SemanticContext *context) override;
   virtual SharedDataType resolve_types() override;
   virtual UniqueExpression constant_fold() override;
 
+  // Code Generation
+  virtual void codegen() override;
+
+  // Graph Generation
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
 };
@@ -674,13 +750,16 @@ struct IfStmt : public StatementNode {
   IfStmt() { m_node_type = NodeType::IF_STATEMENT; }
 
   // Semantic Analysis
-
   virtual void find_labels(std::unordered_set<std::string> *labels) override;
   virtual void resolve_identifiers(SemanticContext *context) override;
   virtual SharedDataType resolve_types() override;
   virtual UniqueExpression constant_fold() override;
   virtual void control_flow(FlowContext *context) override;
 
+  // Code Generation
+  virtual void codegen() override;
+
+  // Graph Generation
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
 };
@@ -692,13 +771,16 @@ struct SwitchStmt : public StatementNode {
   SwitchStmt() { m_node_type = NodeType::SWITCH_STATEMENT; }
 
   // Semantic Analysis
-
   virtual void find_labels(std::unordered_set<std::string> *labels) override;
   virtual void resolve_identifiers(SemanticContext *context) override;
   virtual SharedDataType resolve_types() override;
   virtual UniqueExpression constant_fold() override;
   virtual void control_flow(FlowContext *context) override;
 
+  // Code Generation
+  virtual void codegen() override;
+
+  // Graph Generation
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
 };
@@ -713,13 +795,16 @@ struct WhileStmt : public StatementNode {
   WhileStmt() { m_node_type = NodeType::WHILE_STATEMENT; }
 
   // Semantic Analysis
-
   virtual void find_labels(std::unordered_set<std::string> *labels) override;
   virtual void resolve_identifiers(SemanticContext *context) override;
   virtual SharedDataType resolve_types() override;
   virtual UniqueExpression constant_fold() override;
   virtual void control_flow(FlowContext *context) override;
 
+  // Code Generation
+  virtual void codegen() override;
+
+  // Graph Generation
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
 };
@@ -733,13 +818,16 @@ struct ForStmt : public StatementNode {
   ForStmt() { m_node_type = NodeType::FOR_STATEMENT; }
 
   // Semantic Analysis
-
   virtual void find_labels(std::unordered_set<std::string> *labels) override;
   virtual void resolve_identifiers(SemanticContext *context) override;
   virtual SharedDataType resolve_types() override;
   virtual UniqueExpression constant_fold() override;
   virtual void control_flow(FlowContext *context) override;
 
+  // Code Generation
+  virtual void codegen() override;
+
+  // Graph Generation
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
 };
@@ -753,6 +841,10 @@ struct ControlStmt : public StatementNode {
   // Semantic Analysis
   virtual void control_flow(FlowContext *context) override;
 
+  // Code Generation
+  virtual void codegen() override;
+
+  // Graph Generation
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
 };
@@ -763,12 +855,15 @@ struct ReturnStmt : public StatementNode {
   ReturnStmt() { m_node_type = NodeType::RETURN_STATEMENT; }
 
   // Semantic Analysis
-
   virtual void resolve_identifiers(SemanticContext *context) override;
   virtual SharedDataType resolve_types() override;
   virtual UniqueExpression constant_fold() override;
   virtual void control_flow(FlowContext *context) override;
 
+  // Code Generation
+  virtual void codegen() override;
+
+  // Graph Generation
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
 };
@@ -781,6 +876,10 @@ struct GotoStmt : public StatementNode {
   // Semantic Analysis
   virtual void resolve_identifiers(SemanticContext *context) override;
 
+  // Code Generation
+  virtual void codegen() override;
+
+  // Graph Generation
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
 };
@@ -800,6 +899,9 @@ struct DeclarationNode : public Node {
   virtual void find_labels(std::unordered_set<std::string> *labels) override;
   virtual void control_flow(FlowContext *context) override;
 
+  // Code Generation
+  virtual llvm::Value *codegen() = 0;
+
   void graph_gen_type(const void *parent_id, std::ostream &out) const;
 
  protected:
@@ -816,6 +918,30 @@ struct VariableDeclaration : public DeclarationNode {
   virtual SharedDataType resolve_types() override;
   virtual UniqueExpression constant_fold() override;
 
+  // Code Generation
+  virtual llvm::Value *codegen() override;
+
+  // Graph Generation
+  virtual std::string to_string() const override;
+  virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
+};
+
+struct ArrayDeclaration : public DeclarationNode {
+  // TODO arrays can be initialized with array initializers
+  UniqueExpression m_initializer = nullptr;
+  UniqueExpression m_size = nullptr;
+
+  ArrayDeclaration() { m_node_type = NodeType::ARRAY_DECLARATION; }
+
+  // Semantic Analysis
+  virtual void resolve_identifiers(SemanticContext *context) override;
+  virtual SharedDataType resolve_types() override;
+  virtual UniqueExpression constant_fold() override;
+
+  // Code Generation
+  virtual llvm::Value *codegen() override;
+
+  // Graph Generation
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
 };
@@ -836,22 +962,11 @@ struct FunctionDefinition : public DeclarationNode {
   virtual UniqueExpression constant_fold() override;
   virtual void control_flow(FlowContext *context) override;
 
-  virtual std::string to_string() const override;
-  virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
-};
+  // Code Generation
+  virtual llvm::Value *codegen() override;
+  // llvm::Function *gen_func();
 
-struct ArrayDeclaration : public DeclarationNode {
-  // TODO arrays can be initialized with array initializers
-  UniqueExpression m_initializer = nullptr;
-  UniqueExpression m_size = nullptr;
-
-  ArrayDeclaration() { m_node_type = NodeType::ARRAY_DECLARATION; }
-
-  // Semantic Analysis
-  virtual void resolve_identifiers(SemanticContext *context) override;
-  virtual SharedDataType resolve_types() override;
-  virtual UniqueExpression constant_fold() override;
-
+  // Graph Generation
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
 };
@@ -862,13 +977,16 @@ struct TranslationUnit : public Node {
   TranslationUnit() { m_node_type = NodeType::TRANSLATION_UNIT; }
 
   // Semantic Analysis
-
   virtual void find_labels(std::unordered_set<std::string> *labels) override;
   virtual void resolve_identifiers(SemanticContext *context) override;
   virtual SharedDataType resolve_types() override;
   virtual UniqueExpression constant_fold() override;
   virtual void control_flow(FlowContext *context) override;
 
+  // Code Generation
+  std::vector<llvm::Value *> codegen();
+
+  // Graph Generation
   virtual std::string to_string() const override;
   virtual void graph_gen(const void *parent_id, const std::string &connection, std::ostream &out) const override;
 };

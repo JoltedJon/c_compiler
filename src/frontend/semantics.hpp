@@ -26,6 +26,7 @@ struct FlowContext {
   int in_loop = 0;
   int in_switch = 0;
   bool has_return = false;
+  bool has_default = false;
 };
 
 }  // namespace JCC

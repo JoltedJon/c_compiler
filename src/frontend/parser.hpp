@@ -196,8 +196,6 @@ class Parser {
   std::unordered_map<std::string, SharedDataType> get_base_types() const {
     return m_current_type_context->m_type_symbol_table;
   }
-
-  void graph_gen(std::ostream &out, const Node *node) const;
 };
 
 }  // namespace JCC

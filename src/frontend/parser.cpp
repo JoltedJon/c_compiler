@@ -19,7 +19,7 @@ namespace JCC {
 #define fatal_error(p_error_message)                                                                 \
   do {                                                                                               \
     std::cerr << ANSI_COLOR_RED << "Fatal Error - Please Report Bug: " << ANSI_COLOR_RESET << "\n\t" \
-              << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n\t" << std::endl;                      \
+              << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n\tAST Generation:" << std::endl;       \
     error(p_error_message);                                                                          \
     std::abort();                                                                                    \
   } while (0)
@@ -243,6 +243,7 @@ UniqueExpression Parser::parse_precedence(Parser::Precedence p_precedence) {
 }
 
 UniqueExpression Parser::parse_grouping(UniqueExpression p_previous_operand) {
+  (void)p_previous_operand;
   if (is_declaration_start()) {
     // TODO cast cannot have storage class spec but parse_declaration_specifier will parse it anyways
     DeclarationNode::StorageClassSpec p_spec;
@@ -363,20 +364,17 @@ UniqueExpression Parser::parse_binary_operation(UniqueExpression p_previous_oper
 }
 
 UniqueExpression Parser::parse_assignment_operation(UniqueExpression p_previous_operand) {
-  static std::unordered_map<Token::Type, BinaryOpNode::OpType> assignOps = {
-      {Token::Type::EQUAL, BinaryOpNode::OpType::OP_ASSIGN},
-      {Token::Type::PLUS_EQUAL, BinaryOpNode::OpType::OP_ADD_ASSIGN},
-      {Token::Type::MINUS_EQUAL, BinaryOpNode::OpType::OP_SUBTRACT_ASSIGN},
-      {Token::Type::STAR_EQUAL, BinaryOpNode::OpType::OP_MULTIPLY_ASSIGN},
-      {Token::Type::SLASH_EQUAL, BinaryOpNode::OpType::OP_DIVIDE_ASSIGN},
-      {Token::Type::PERCENT_EQUAL, BinaryOpNode::OpType::OP_MODULO_ASSIGN},
-      {Token::Type::AMPERSAND_EQUAL, BinaryOpNode::OpType::OP_BITWISE_AND_ASSIGN},
-      {Token::Type::PIPE_EQUAL, BinaryOpNode::OpType::OP_BITWISE_OR_ASSIGN},
-      {Token::Type::CARET_EQUAL, BinaryOpNode::OpType::OP_BITWISE_XOR_ASSIGN},
-      {Token::Type::SHIFT_RIGHT_EQUAL, BinaryOpNode::OpType::OP_LEFT_SHIFT_ASSIGN},
-      {Token::Type::SHIFT_LEFT_EQUAL, BinaryOpNode::OpType::OP_RIGHT_SHIFT_ASSIGN},
-  };
-
+  static std::unordered_map<Token::Type, BinaryOpNode::OpType> pseudo_ops = {
+      {Token::Type::PLUS_EQUAL, BinaryOpNode::OpType::OP_ADDITION},
+      {Token::Type::MINUS_EQUAL, BinaryOpNode::OpType::OP_SUBTRACTION},
+      {Token::Type::STAR_EQUAL, BinaryOpNode::OpType::OP_MULTIPLICATION},
+      {Token::Type::SLASH_EQUAL, BinaryOpNode::OpType::OP_DIVISION},
+      {Token::Type::PERCENT_EQUAL, BinaryOpNode::OpType::OP_MODULO},
+      {Token::Type::AMPERSAND_EQUAL, BinaryOpNode::OpType::OP_BIT_AND},
+      {Token::Type::PIPE_EQUAL, BinaryOpNode::OpType::OP_BIT_OR},
+      {Token::Type::CARET_EQUAL, BinaryOpNode::OpType::OP_BIT_XOR},
+      {Token::Type::SHIFT_RIGHT_EQUAL, BinaryOpNode::OpType::OP_BIT_RIGHT},
+      {Token::Type::SHIFT_LEFT_EQUAL, BinaryOpNode::OpType::OP_BIT_LEFT}};
   Token op = m_previous_tok;
   BinaryOpNode *operation = alloc_node<BinaryOpNode>();
 
@@ -388,19 +386,30 @@ UniqueExpression Parser::parse_assignment_operation(UniqueExpression p_previous_
     error(std::format(R"(Expected expression after "{}" operator.)", op.get_type_string()));
   }
 
-  auto it = assignOps.find(op.m_type);
+  operation->m_operation = BinaryOpNode::OpType::OP_ASSIGN;
+  operation->m_data_type = get_type("unresolved type");
 
-  if (it == assignOps.end()) {
-    fatal_error(std::format("Unexpected Token: {}", op.get_type_string()));
+  if (op == Token::Type::EQUAL) return UniqueExpression(operation);
+
+  BinaryOpNode *inner = alloc_node<BinaryOpNode>();
+  inner->m_left_operand = operation->m_left_operand->clone();
+  inner->m_right_operand = std::move(operation->m_right_operand);
+
+  operation->m_right_operand = UniqueExpression(inner);
+
+  auto it = pseudo_ops.find(op.m_type);
+  if (it == pseudo_ops.end()) {
+    error(std::format(R"(Unexpected Token "{}")", op.get_type_string()));
   }
 
-  operation->m_operation = it->second;
-  operation->m_data_type = get_type("unresolved type");
+  inner->m_operation = it->second;
 
   return UniqueExpression(operation);
 }
 
 UniqueExpression Parser::parse_unary_operation(UniqueExpression p_previous_operand) {
+  (void)p_previous_operand;
+
   Token::Type op_type = m_previous_tok.m_type;
   UnaryOpNode *operation = alloc_node<UnaryOpNode>();
   UniqueExpression uniq_op = UniqueExpression(operation);
@@ -553,6 +562,8 @@ UniqueExpression Parser::parse_postfix(UniqueExpression p_previous_operand) {
 }
 
 UniqueExpression Parser::parse_identifier(UniqueExpression p_previous_operand) {
+  (void)p_previous_operand;
+
   std::optional<int> opt_value = get_enum_val(m_previous_tok.get_val<std::string>());
   if (opt_value.has_value()) {
     ConstantNode *constant = alloc_node<ConstantNode>();
@@ -575,6 +586,8 @@ UniqueExpression Parser::parse_identifier(UniqueExpression p_previous_operand) {
 }
 
 UniqueExpression Parser::parse_literal(UniqueExpression p_previous_operand) {
+  (void)p_previous_operand;
+
   Token lit = m_previous_tok;
   ConstantNode *constant = alloc_node<ConstantNode>();
   constant->m_value = m_previous_tok.m_literal;
@@ -812,6 +825,10 @@ UniqueStatement Parser::parse_switch_statement() {
     return nullptr;
   }
 
+  if (!consume(Token::Type::OPEN_CURLY_BRACE, "Expected Compound Statement")) {
+    return nullptr;
+  }
+
   SwitchStmt *stmt = alloc_node<SwitchStmt>();
   stmt->m_expr = std::move(expr);
   stmt->m_stmt = parse_statement();
@@ -1029,6 +1046,7 @@ Token Parser::get_type_specifier() {
         typedef_name.m_type = Token::Type::TYPEDEF_NAME;
         return typedef_name;
       }
+      [[fallthrough]];
     default:
       return m_current_tok;
   }
@@ -1096,6 +1114,7 @@ SharedDataType Parser::parse_type_specifiers(std::vector<Token> &p_type_specifie
           warning(std::format(R"(Duplicate "{}" declaration specifier)", token.get_type_string()));
         }
         sign = Sign::SIGNED;
+        break;
       case Token::Type::UNSIGNED:
         if (sign != Sign::NONE && sign != Sign::UNSIGNED) {
           error(std::format(R"(Cannot combine "{}" with previous declaration specifier)", token.get_type_string()));
@@ -1105,6 +1124,7 @@ SharedDataType Parser::parse_type_specifiers(std::vector<Token> &p_type_specifie
           warning(std::format(R"(Duplicate "{}" declaration specifier)", token.get_type_string()));
         }
         sign = Sign::UNSIGNED;
+        break;
       case Token::Type::LONG:
         long_count++;
         break;

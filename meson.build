@@ -1,13 +1,17 @@
 project('jonc', 'cpp', default_options: ['cpp_std=c++23', 'default_library=static'])
 
-add_project_arguments(['-Wall', '-Wextra'], language: 'c')
+cpp_std = 'c++23'
+wall = true
+
+add_project_arguments(['-Wall', '-Wextra', '-Wpedantic'], language: 'cpp')
 
 sources = [
-  'src/lexer.cpp',
-  'src/parser.cpp',
-  'src/semantics.cpp',
-  'src/constant_fold.cpp',
-  'src/graph_gen.cpp',
+  'src/frontend/lexer.cpp',
+  'src/frontend/parser.cpp',
+  'src/frontend/semantics.cpp',
+  'src/frontend/constant_fold.cpp',
+  'src/frontend/graph_gen.cpp',
+  'src/middleend/codegen.cpp',
   'src/compiler.cpp',
   'src/main.cpp',
 ]

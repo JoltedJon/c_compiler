@@ -238,7 +238,7 @@ class Lexer {
   inline bool at_end() { return m_current >= m_source.size(); }
   inline char peek() { return at_end() ? '\0' : m_source[m_current]; }
   inline char peek(int p_offset) {
-    return at_end() || m_current + p_offset < 0 || m_current + p_offset >= m_source.size()
+    return at_end() || static_cast<int64_t>(m_current + p_offset) < 0 || m_current + p_offset >= m_source.size()
                ? '\0'
                : m_source[m_current + p_offset];
   }

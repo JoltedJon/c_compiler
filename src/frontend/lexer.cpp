@@ -12,7 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "ansi_colors.hpp"
+#include "../ansi_colors.hpp"
 
 namespace JCC {
 
@@ -270,6 +270,7 @@ void Lexer::scan_token() {
       else {
         read_identifier();
       }
+      break;
     case '#':
       read_macro();
       break;

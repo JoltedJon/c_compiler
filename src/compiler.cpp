@@ -1,24 +1,33 @@
 #include "compiler.hpp"
 
+#include <llvm-18/llvm/IR/Value.h>
+
 #include <iostream>
 
+#include "frontend/graph_gen.hpp"
 #include "frontend/lexer.hpp"
 #include "frontend/parser.hpp"
 #include "frontend/semantics.hpp"
+#include "middleend/codegen.hpp"
+#include "src/ast.hpp"
 
 namespace JCC {
 
 void Compiler::compile(std::string filename) {
-  Lexer lex(filename);
+  UniqueNode program;
 
-  if (lex.scan()) {
-    return;
+  {
+    Lexer lex(filename);
+
+    if (lex.scan()) {
+      return;
+    }
+
+    Parser p(lex);
+    program = p.parse();
+
+    SemanticContext::base_types = p.get_base_types();
   }
-
-  Parser p(lex);
-  UniqueNode program = p.parse();
-
-  SemanticContext::base_types = p.get_base_types();
 
   program->find_labels(nullptr);
   if (SemanticContext::has_error()) {
@@ -44,7 +53,16 @@ void Compiler::compile(std::string filename) {
   if (SemanticContext::has_error()) {
     return;
   }
-  p.graph_gen(std::cout, program.get());
+
+  // TODO set via commandline arguments
+  bool generate_ast_graph = false;
+  if (generate_ast_graph) {
+    graph_gen(std::cout, program.get());
+  }
+
+  std::vector<llvm::Value *> llvm_program = static_cast<TranslationUnit *>(program.get())->codegen();
+
+  codegen_context::llvm_module->print(llvm::outs(), nullptr);
 }
 
 }  // namespace JCC
