@@ -4,8 +4,12 @@
 
 namespace JCC {
 
-class Compiler {
- public:
+struct Compiler {
+  bool print_ast_graph = false;
+  bool emit_llvm_ir = false;
+
+  std::string output_dir = "";
+
   void compile(std::string filename);
 };
 

@@ -1,7 +1,8 @@
-#include "codegen.hpp"
 
 #include <llvm-18/llvm/ADT/APFloat.h>
 #include <llvm-18/llvm/ADT/APInt.h>
+#include <llvm-18/llvm/Analysis/CGSCCPassManager.h>
+#include <llvm-18/llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm-18/llvm/IR/BasicBlock.h>
 #include <llvm-18/llvm/IR/Constant.h>
 #include <llvm-18/llvm/IR/Constants.h>
@@ -12,11 +13,20 @@
 #include <llvm-18/llvm/IR/Instructions.h>
 #include <llvm-18/llvm/IR/LLVMContext.h>
 #include <llvm-18/llvm/IR/Module.h>
+#include <llvm-18/llvm/IR/PassInstrumentation.h>
+#include <llvm-18/llvm/IR/PassManager.h>
 #include <llvm-18/llvm/IR/Type.h>
 #include <llvm-18/llvm/IR/Value.h>
 #include <llvm-18/llvm/IR/Verifier.h>
+#include <llvm-18/llvm/Passes/PassBuilder.h>
+#include <llvm-18/llvm/Passes/StandardInstrumentations.h>
+#include <llvm-18/llvm/Transforms/InstCombine/InstCombine.h>
+#include <llvm-18/llvm/Transforms/Scalar/GVN.h>
+#include <llvm-18/llvm/Transforms/Scalar/Reassociate.h>
+#include <llvm-18/llvm/Transforms/Scalar/SimplifyCFG.h>
 
 #include <cstdint>
+#include <format>
 #include <iostream>
 #include <memory>
 #include <utility>
@@ -26,22 +36,30 @@
 
 namespace JCC {
 
-std::unique_ptr<llvm::LLVMContext> codegen_context::llvm_context = nullptr;
-std::unique_ptr<llvm::IRBuilder<>> codegen_context::llvm_builder = nullptr;
-std::unique_ptr<llvm::Module> codegen_context::llvm_module = nullptr;
-std::unordered_map<std::string, llvm::AllocaInst *> codegen_context::named_values;
-std::unordered_map<std::string, llvm::BasicBlock *> codegen_context::labeled_blocks;
-llvm::BasicBlock *codegen_context::break_dest;
-llvm::BasicBlock *codegen_context::continue_dest;
+template <class T>
+using Unique = std::unique_ptr<T>;
 
-llvm::LLVMContext *llvm_context;
-llvm::IRBuilder<> *llvm_builder;
-llvm::Module *llvm_module;
+// Core functionality
+static Unique<llvm::LLVMContext> llvm_context;
+static Unique<llvm::IRBuilder<>> llvm_builder;
+static Unique<llvm::Module> llvm_module;
 
-void log_error(const std::string &message) {
-  (void)message;
-  // TODO error logging if needed
-}
+// Optimization Objects
+static Unique<llvm::FunctionPassManager> llvm_fpm;
+static Unique<llvm::LoopAnalysisManager> llvm_lam;
+static Unique<llvm::FunctionAnalysisManager> llvm_fam;
+static Unique<llvm::CGSCCAnalysisManager> llvm_cgam;
+static Unique<llvm::ModuleAnalysisManager> llvm_mam;
+static Unique<llvm::PassInstrumentationCallbacks> llvm_pic;
+static Unique<llvm::StandardInstrumentations> llvm_si;
+
+// Codegen Specific data
+static std::unordered_map<std::string, llvm::AllocaInst *> named_values;
+static std::unordered_map<std::string, llvm::BasicBlock *> labeled_blocks;
+static llvm::BasicBlock *break_dest;
+static llvm::BasicBlock *continue_dest;
+
+void log_error(const std::string &message) { std::cerr << message << std::endl; }
 
 #define fatal_error(p_error_message)                                                                                \
   do {                                                                                                              \
@@ -102,6 +120,7 @@ llvm::Type *map_to_LLVM_type(SharedDataType p_type) {
       return llvm::ArrayType::get(map_to_LLVM_type(arr->m_base_type), arr->m_size);
     }
     default:
+      log_error("Unknown Data Type");
       return nullptr;
   }
 }
@@ -297,15 +316,18 @@ llvm::Value *UnaryOpNode::codegen() {
       }
     }
   }
+  log_error("Invalid Unary Operation");
   return nullptr;
 }
 
-llvm::Value *gen_logical(llvm::Value *l, llvm::Value *r, bool is_and) {
+llvm::Value *gen_logical(ExpressionNode *lhs, ExpressionNode *rhs, bool is_and) {
   llvm::BasicBlock *first_block = llvm_builder->GetInsertBlock();
   llvm::Function *f = first_block->getParent();
 
   llvm::BasicBlock *next_block = llvm::BasicBlock::Create(*llvm_context, "next", f);
   llvm::BasicBlock *merge_block = llvm::BasicBlock::Create(*llvm_context, "merge", f);
+
+  llvm::Value *l = lhs->codegen();
 
   if (l->getType()->isFloatingPointTy()) {
     l = llvm_builder->CreateFCmpUNE(l, llvm::Constant::getNullValue(l->getType()));
@@ -322,6 +344,9 @@ llvm::Value *gen_logical(llvm::Value *l, llvm::Value *r, bool is_and) {
   }
 
   llvm_builder->SetInsertPoint(next_block);
+
+  llvm::Value *r = rhs->codegen();
+
   if (r->getType()->isFloatingPointTy()) {
     r = llvm_builder->CreateFCmpUNE(r, llvm::Constant::getNullValue(r->getType()));
   }
@@ -332,7 +357,8 @@ llvm::Value *gen_logical(llvm::Value *l, llvm::Value *r, bool is_and) {
 
   llvm_builder->SetInsertPoint(merge_block);
 
-  llvm::PHINode *phi = llvm_builder->CreatePHI(llvm::Type::getInt1Ty(*llvm_context), 2, "and_result");
+  llvm::PHINode *phi =
+      llvm_builder->CreatePHI(llvm::Type::getInt1Ty(*llvm_context), 2, is_and ? "and_result" : "or_result");
   phi->addIncoming(l, first_block);
   phi->addIncoming(r, next_block);
 
@@ -341,8 +367,12 @@ llvm::Value *gen_logical(llvm::Value *l, llvm::Value *r, bool is_and) {
 
 llvm::Value *BinaryOpNode::codegen() {
   m_left_operand->m_is_lvalue = m_operation == OpType::OP_ASSIGN;
-  llvm::Value *l = m_left_operand->codegen();
 
+  if (m_operation == OpType::OP_LOGIC_AND || m_operation == OpType::OP_LOGIC_OR) {
+    return gen_logical(m_left_operand.get(), m_right_operand.get(), m_operation == OpType::OP_LOGIC_AND);
+  }
+
+  llvm::Value *l = m_left_operand->codegen();
   m_right_operand->m_is_lvalue = false;
   llvm::Value *r = m_right_operand->codegen();
 
@@ -450,10 +480,10 @@ llvm::Value *BinaryOpNode::codegen() {
       return llvm_builder->CreateICmpNE(l, r);
     }
     case OpType::OP_LOGIC_AND: {
-      return gen_logical(l, r, true);
+      break;
     }
     case OpType::OP_LOGIC_OR: {
-      return gen_logical(l, r, false);
+      break;
     }
     case OpType::OP_ASSIGN: {
       llvm_builder->CreateStore(r, l);
@@ -491,10 +521,6 @@ llvm::Value *MemberAccessNode::codegen() {
 }
 
 llvm::Value *CallNode::codegen() {
-  llvm::Value *callee = m_callee->codegen();
-
-  if (!callee) return nullptr;
-
   std::vector<llvm::Value *> args;
   args.reserve(m_args.size());
 
@@ -512,6 +538,10 @@ llvm::Value *CallNode::codegen() {
 
     return llvm_builder->CreateCall(callee_func, args, "calltmp");
   }
+
+  llvm::Value *callee = m_callee->codegen();
+
+  if (!callee) return nullptr;
 
   // Can static cast callee data_type since it should be functionType
   FunctionType *func_type = static_cast<FunctionType *>(m_callee->m_data_type.get());
@@ -533,11 +563,14 @@ llvm::Value *CallNode::codegen() {
 }
 
 llvm::Value *IdentifierNode::codegen() {
-  llvm::Value *ptr = codegen_context::named_values[m_name];
+  llvm::Value *ptr = named_values[m_name];
+  if (!ptr) {
+    fatal_error(std::format(R"(Identifier "{}" not definined in LLVM Context)", m_name));
+  }
   if (m_is_lvalue) {
     return ptr;
   }
-  return llvm_builder->CreateLoad(map_to_LLVM_type(m_data_type), ptr, m_name + ".");
+  return llvm_builder->CreateLoad(map_to_LLVM_type(m_data_type), ptr, m_name);
 }
 
 llvm::Value *ConstantNode::codegen() {
@@ -577,6 +610,7 @@ llvm::Value *ConstantNode::codegen() {
       return llvm::ConstantDataArray::getString(*llvm_context, get_val<std::string>(), true);
     }
   }
+  fatal_error("Unknown Constant type");
   return nullptr;
 }
 
@@ -593,7 +627,7 @@ void LabelStmt::codegen() {
   }
 
   llvm_builder->SetInsertPoint(label_block);
-  codegen_context::labeled_blocks[m_label] = label_block;
+  labeled_blocks[m_label] = label_block;
 }
 
 void CaseStmt::codegen() {
@@ -625,32 +659,51 @@ void IfStmt::codegen() {
     cond = llvm_builder->CreateICmpNE(cond, llvm::Constant::getNullValue(cond->getType()));
   }
 
+  llvm::BasicBlock *condition = llvm_builder->GetInsertBlock();
   llvm::Function *f = llvm_builder->GetInsertBlock()->getParent();
 
   llvm::BasicBlock *then_block = llvm::BasicBlock::Create(*llvm_context, "then", f);
-  llvm::BasicBlock *else_block = m_false_stmt ? llvm::BasicBlock::Create(*llvm_context, "else", f) : nullptr;
-  llvm::BasicBlock *merge_block = llvm::BasicBlock::Create(*llvm_context, "merge", f);
+  // llvm::BasicBlock *else_block = m_false_stmt ? llvm::BasicBlock::Create(*llvm_context, "else", f) : nullptr;
+  // llvm::BasicBlock *merge_block = llvm::BasicBlock::Create(*llvm_context, "merge", f);
 
-  if (else_block) {
-    llvm_builder->CreateCondBr(cond, then_block, else_block);
-  }
-  else {
-    llvm_builder->CreateCondBr(cond, then_block, merge_block);
-  }
+  // if (else_block) {
+  //   llvm_builder->CreateCondBr(cond, then_block, else_block);
+  // }
+  // else {
+  //   llvm_builder->CreateCondBr(cond, then_block, merge_block);
+  // }
 
   llvm_builder->SetInsertPoint(then_block);
   m_true_stmt->codegen();
-  if (!then_block->getTerminator()) llvm_builder->CreateBr(merge_block);
 
-  if (else_block) {
-    f->insert(f->end(), else_block);
+  llvm::BasicBlock *else_block = nullptr;
+  llvm::BasicBlock *merge_block = nullptr;
+  if (m_false_stmt) {
+    else_block = llvm::BasicBlock::Create(*llvm_context, "else", f);
     llvm_builder->SetInsertPoint(else_block);
     m_false_stmt->codegen();
-    if (!else_block->getTerminator()) llvm_builder->CreateBr(merge_block);
+
+    if (!else_block->getTerminator()) {
+      merge_block = llvm::BasicBlock::Create(*llvm_context, "merge", f);
+      llvm_builder->CreateBr(merge_block);
+    }
+
+    llvm_builder->SetInsertPoint(condition);
+    llvm_builder->CreateCondBr(cond, then_block, else_block);
+  }
+  else {
+    merge_block = llvm::BasicBlock::Create(*llvm_context, "merge", f);
+    llvm_builder->CreateCondBr(cond, then_block, merge_block);
   }
 
-  f->insert(f->end(), merge_block);
-  llvm_builder->SetInsertPoint(merge_block);
+  if (!then_block->getTerminator()) {
+    llvm_builder->SetInsertPoint(then_block);
+    llvm_builder->CreateBr(merge_block);
+  }
+
+  if (merge_block) {
+    llvm_builder->SetInsertPoint(merge_block);
+  }
 }
 
 void SwitchStmt::codegen() {
@@ -687,8 +740,8 @@ void SwitchStmt::codegen() {
   llvm::SwitchInst *switch_inst = llvm_builder->CreateSwitch(expr, nullptr, cases.size());
   llvm::BasicBlock *merge_block = llvm::BasicBlock::Create(*llvm_context, "switch_end", f);
 
-  llvm::BasicBlock *prev_break_dest = codegen_context::break_dest;
-  codegen_context::break_dest = merge_block;
+  llvm::BasicBlock *prev_break_dest = break_dest;
+  break_dest = merge_block;
 
   for (auto &case_pair : cases) {
     llvm::BasicBlock *prev_case = llvm_builder->GetInsertBlock();
@@ -731,7 +784,7 @@ void SwitchStmt::codegen() {
   if (!prev_block->getTerminator()) {
     llvm_builder->CreateBr(merge_block);
   }
-  codegen_context::break_dest = prev_break_dest;
+  break_dest = prev_break_dest;
 
   llvm_builder->SetInsertPoint(merge_block);
 }
@@ -764,16 +817,16 @@ void WhileStmt::codegen() {
 
   llvm_builder->CreateCondBr(cond, body, done);
 
-  llvm::BasicBlock *prev_break_dest = codegen_context::break_dest;
-  llvm::BasicBlock *prev_continue_dest = codegen_context::continue_dest;
-  codegen_context::break_dest = done;
-  codegen_context::continue_dest = condition_check;
+  llvm::BasicBlock *prev_break_dest = break_dest;
+  llvm::BasicBlock *prev_continue_dest = continue_dest;
+  break_dest = done;
+  continue_dest = condition_check;
 
   llvm_builder->SetInsertPoint(body);
   m_stmt->codegen();
 
-  codegen_context::break_dest = prev_break_dest;
-  codegen_context::continue_dest = prev_continue_dest;
+  break_dest = prev_break_dest;
+  continue_dest = prev_continue_dest;
 
   prev_block = llvm_builder->GetInsertBlock();
   if (!prev_block->getTerminator()) {
@@ -810,16 +863,16 @@ void ForStmt::codegen() {
 
   llvm_builder->CreateCondBr(cond, body, end);
 
-  llvm::BasicBlock *prev_break_dest = codegen_context::break_dest;
-  llvm::BasicBlock *prev_continue_dest = codegen_context::continue_dest;
-  codegen_context::break_dest = end;
-  codegen_context::continue_dest = condition;
+  llvm::BasicBlock *prev_break_dest = break_dest;
+  llvm::BasicBlock *prev_continue_dest = continue_dest;
+  break_dest = end;
+  continue_dest = condition;
 
   llvm_builder->SetInsertPoint(body);
   m_stmt->codegen();
 
-  codegen_context::break_dest = prev_break_dest;
-  codegen_context::continue_dest = prev_continue_dest;
+  break_dest = prev_break_dest;
+  continue_dest = prev_continue_dest;
 
   previous_block = llvm_builder->GetInsertBlock();
   if (!previous_block->getTerminator()) {
@@ -837,12 +890,12 @@ void ForStmt::codegen() {
 
 void ControlStmt::codegen() {
   if (m_control == ControlType::BREAK) {
-    if (codegen_context::break_dest == nullptr) fatal_error("No break destination specified");
-    llvm_builder->CreateBr(codegen_context::break_dest);
+    if (break_dest == nullptr) fatal_error("No break destination specified");
+    llvm_builder->CreateBr(break_dest);
   }
   else {
-    if (codegen_context::continue_dest == nullptr) fatal_error("No break destination specified");
-    llvm_builder->CreateBr(codegen_context::continue_dest);
+    if (continue_dest == nullptr) fatal_error("No break destination specified");
+    llvm_builder->CreateBr(continue_dest);
   }
 }
 
@@ -856,7 +909,7 @@ void ReturnStmt::codegen() {
   }
 }
 
-void GotoStmt::codegen() { llvm_builder->CreateBr(codegen_context::labeled_blocks[m_label]); }
+void GotoStmt::codegen() { llvm_builder->CreateBr(labeled_blocks[m_label]); }
 
 /////////////////////////////////////////////////////////////////////
 
@@ -864,7 +917,7 @@ void GotoStmt::codegen() { llvm_builder->CreateBr(codegen_context::labeled_block
 llvm::Value *VariableDeclaration::codegen() {
   llvm::Function *func = llvm_builder->GetInsertBlock()->getParent();
   llvm::AllocaInst *alloc = alloc_variable(func, map_to_LLVM_type(m_data_type), nullptr, m_identifier);
-  codegen_context::named_values[m_identifier] = alloc;
+  named_values[m_identifier] = alloc;
 
   if (m_initializer) {
     llvm::Value *init_val = m_initializer->codegen();
@@ -885,7 +938,7 @@ llvm::Value *ArrayDeclaration::codegen() {
 
   llvm::Value *size = m_size->codegen();
   llvm::AllocaInst *alloc = alloc_variable(func, map_to_LLVM_type(m_data_type), size, m_identifier);
-  codegen_context::named_values[m_identifier] = alloc;
+  named_values[m_identifier] = alloc;
 
   // TODO variable length arrays
   if (m_initializer) {
@@ -912,7 +965,7 @@ llvm::Value *FunctionDefinition::codegen() {
 
     llvm::FunctionType *func_ty = llvm::FunctionType::get(ret_ty, params, false);
 
-    f = llvm::Function::Create(func_ty, llvm::Function::ExternalLinkage, m_identifier, llvm_module);
+    f = llvm::Function::Create(func_ty, llvm::Function::ExternalLinkage, m_identifier, *llvm_module);
 
     size_t i = 0;
     for (auto &arg : f->args()) {
@@ -926,25 +979,50 @@ llvm::Value *FunctionDefinition::codegen() {
   llvm::BasicBlock *block = llvm::BasicBlock::Create(*llvm_context, "entry", f);
   llvm_builder->SetInsertPoint(block);
 
+  auto arg_iter = f->arg_begin();
+
   for (auto &param : m_params) {
-    param->codegen();
+    llvm::Value *alloc = param->codegen();
+    llvm_builder->CreateStore(&*arg_iter, alloc);
+    ++arg_iter;
   }
 
   m_body->codegen();
 
-  llvm::verifyFunction(*f);
+  if (llvm::verifyFunction(*f)) {
+    log_error("LLVM Error Occurred... and ignored");
+  }
+
+  llvm_fpm->run(*f, *llvm_fam);
+
   return f;
 }
 
 std::vector<llvm::Value *> TranslationUnit::codegen() {
-  codegen_context::llvm_context = std::make_unique<llvm::LLVMContext>();
-  llvm_context = codegen_context::llvm_context.get();
+  llvm_context = std::make_unique<llvm::LLVMContext>();
+  llvm_builder = std::make_unique<llvm::IRBuilder<>>(*llvm_context);
+  llvm_module = std::make_unique<llvm::Module>(m_filename, *llvm_context);
 
-  codegen_context::llvm_builder = std::make_unique<llvm::IRBuilder<>>(*llvm_context);
-  llvm_builder = codegen_context::llvm_builder.get();
+  // Optimization Passes
+  llvm_fpm = std::make_unique<llvm::FunctionPassManager>();
+  llvm_lam = std::make_unique<llvm::LoopAnalysisManager>();
+  llvm_fam = std::make_unique<llvm::FunctionAnalysisManager>();
+  llvm_cgam = std::make_unique<llvm::CGSCCAnalysisManager>();
+  llvm_mam = std::make_unique<llvm::ModuleAnalysisManager>();
+  llvm_pic = std::make_unique<llvm::PassInstrumentationCallbacks>();
+  llvm_si = std::make_unique<llvm::StandardInstrumentations>(*llvm_context, true);
 
-  codegen_context::llvm_module = std::make_unique<llvm::Module>(m_filename, *llvm_context);
-  llvm_module = codegen_context::llvm_module.get();
+  llvm_si->registerCallbacks(*llvm_pic, llvm_mam.get());
+
+  llvm_fpm->addPass(llvm::InstCombinePass());
+  llvm_fpm->addPass(llvm::ReassociatePass());
+  llvm_fpm->addPass(llvm::GVNPass());
+  llvm_fpm->addPass(llvm::SimplifyCFGPass());
+
+  llvm::PassBuilder llvm_pb;
+  llvm_pb.registerModuleAnalyses(*llvm_mam);
+  llvm_pb.registerFunctionAnalyses(*llvm_fam);
+  llvm_pb.crossRegisterProxies(*llvm_lam, *llvm_fam, *llvm_cgam, *llvm_mam);
 
   std::vector<llvm::Value *> result;
   for (auto &decl : m_program) {

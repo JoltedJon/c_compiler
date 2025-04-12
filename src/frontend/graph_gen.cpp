@@ -12,8 +12,6 @@ namespace JCC {
 char *id = nullptr;
 
 void graph_gen(std::ostream &out, const Node *node) {
-  out << ANSI_COLOR_YELLOW "Outputting to GraphViz Compatible format" << ANSI_COLOR_RESET << "\n\n";
-
   id = nullptr;
   node->graph_gen(id++, "", out);
   out << "}\n\n";

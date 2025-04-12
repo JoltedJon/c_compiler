@@ -8,7 +8,6 @@
 #include "frontend/lexer.hpp"
 #include "frontend/parser.hpp"
 #include "frontend/semantics.hpp"
-#include "middleend/codegen.hpp"
 #include "src/ast.hpp"
 
 namespace JCC {
@@ -54,15 +53,11 @@ void Compiler::compile(std::string filename) {
     return;
   }
 
-  // TODO set via commandline arguments
-  bool generate_ast_graph = false;
-  if (generate_ast_graph) {
+  if (print_ast_graph) {
     graph_gen(std::cout, program.get());
   }
 
   std::vector<llvm::Value *> llvm_program = static_cast<TranslationUnit *>(program.get())->codegen();
-
-  codegen_context::llvm_module->print(llvm::outs(), nullptr);
 }
 
 }  // namespace JCC
