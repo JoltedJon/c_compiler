@@ -166,6 +166,7 @@ struct Emitter : public llvm::InstVisitor<Emitter> {
   LoweredBlock *cur_block;
   std::vector<std::unique_ptr<LoweredFunc>> funcs;
 
+  // Creates and sets current function to inputted function
   void CreateFunc(std::string name) {
     cur_func = new LoweredFunc(name);
     funcs.push_back(std::unique_ptr<LoweredFunc>(cur_func));
@@ -258,6 +259,10 @@ struct Emitter : public llvm::InstVisitor<Emitter> {
 
   void visitCastInst(llvm::CastInst &I);
   void visitInstruction(llvm::Instruction &I);
+
+  // void visitModule(llvm::Module &M);
+  void visitFunction(llvm::Function &F);
+  // void visitBasicBlock(llvm::BasicBlock &BB);
 
   void debug_emit(std::ostream &os);
 };

@@ -71,7 +71,7 @@ void Compiler::compile(std::string filename) {
 
   for (llvm::Function &func : codegen_context::llvm_module->functions()) {
     if (func.isDeclaration()) continue;
-    emitter.visitFunction(func);
+    emitter.visit(func);
   }
 
   emitter.debug_emit(std::cout);

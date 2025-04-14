@@ -130,49 +130,93 @@ Emitter::Emitter() {
   CreateJalr(R_B, R_RET_ADDR, "", "Call Entry");
   CreateHalt("", "Program Finish");
 
-  // Common Registers for Functions
-  int l_reg = 1;
-  int r_reg = 2;
+  // Equal
+  {
+    CreateFunc("Equal");
+    cur_block = CreateBlock("eqFun");
+    CreateData("eqFun", "eq", "Address for Equal");
+
+    int neg_r = cur_func->reg++;
+    CreateNor(R_P2, R_P2, neg_r, "", "Begin ==");
+    int one_reg = get_virt_reg(one);
+    int two_com = cur_func->reg++;
+    CreateAdd(neg_r, one_reg, two_com, "", "~R + 1");
+    int sub_reg = cur_func->reg++;
+    CreateAdd(R_P1, two_com, sub_reg, "", "L - R");
+    std::string if_zero = mangle("z");
+    CreateBeq(sub_reg, R_ZERO, if_zero, "", "L == R ");
+    std::string done = mangle("d");
+    CreateAdd(R_ZERO, R_ZERO, R_RET_VAL, "", "L != R");
+    CreateBeq(R_ZERO, R_ZERO, done);
+    CreateAdd(R_ZERO, one_reg, R_RET_VAL);
+    CreateJalr(R_RET_ADDR, R_B, done, "Return");
+  }
+
+  // Not Equal
+  {
+    CreateFunc("Not Equal");
+    cur_block = CreateBlock("neFun");
+    CreateData("neFun", "ne", "Address for Not Equal");
+
+    int neg_r = cur_func->reg++;
+    CreateNor(R_P2, R_P2, neg_r, "", "Begin !=");
+    int one_reg = get_virt_reg(one);
+    int two_com = cur_func->reg++;
+    CreateAdd(neg_r, one_reg, two_com, "", "~R + 1");
+    int sub_reg = cur_func->reg++;
+    CreateAdd(R_P1, two_com, sub_reg, "", "L - R");
+    std::string if_zero = mangle("z");
+    CreateBeq(sub_reg, R_ZERO, if_zero, "", "L == R ");
+    std::string done = mangle("d");
+    CreateAdd(one_reg, R_ZERO, R_RET_VAL, "", "L != R");
+    CreateBeq(R_ZERO, R_ZERO, done);
+    CreateAdd(R_ZERO, R_ZERO, R_RET_VAL);
+    CreateJalr(R_RET_ADDR, R_B, done, "Return");
+  }
 
   // Shift Left
-  CreateFunc("Shift Left");
+  {
+    CreateFunc("Shift Left");
+    cur_block = CreateBlock("shlFun");
 
-  cur_block = CreateBlock("shlFun");
+    CreateData("shlFun", "shl", "Address for Shift Left");
+    int counter_reg = cur_func->reg++;
+    int acc_reg = cur_func->reg++;
 
-  CreateData("shlFun", "shl", "Address for Shift Left");
-  int counter_reg = cur_func->reg++;
-  int acc_reg = cur_func->reg++;
+    CreateAdd(R_ZERO, R_ZERO, R_RET_VAL, "shlFun", "Shift Left Begin");
+    CreateAdd(R_P2, R_ZERO, counter_reg, "", "Counter");
+    CreateAdd(R_P1, R_ZERO, acc_reg);
 
-  CreateAdd(R_ZERO, R_ZERO, R_RET_VAL, "shlFun", "Shift Left Begin");
-  CreateAdd(r_reg, R_ZERO, counter_reg, "", "Counter");
-  CreateAdd(l_reg, R_ZERO, acc_reg);
+    std::string shl_start = mangle("s");
+    std::string done = mangle("done");
 
-  std::string shl_start = mangle("s");
-  std::string done = mangle("done");
+    cur_block = CreateBlock(shl_start);
 
-  cur_block = CreateBlock(shl_start);
+    CreateBeq(counter_reg, R_ZERO, done, shl_start, "Condition");
+    CreateAdd(acc_reg, acc_reg, acc_reg, "", "Val << 1");
+    CreateAdd(acc_reg, R_ZERO, R_RET_VAL);
+    CreateAdd(counter_reg, get_virt_reg(neg_one), counter_reg, "", "Counter - 1");
+    CreateBeq(R_ZERO, R_ZERO, shl_start);
 
-  CreateBeq(counter_reg, R_ZERO, done, shl_start, "Condition");
-  CreateAdd(acc_reg, acc_reg, acc_reg, "", "Val << 1");
-  CreateAdd(acc_reg, R_ZERO, R_RET_VAL);
-  CreateAdd(counter_reg, get_virt_reg(neg_one), counter_reg, "", "Counter - 1");
-  CreateBeq(R_ZERO, R_ZERO, shl_start);
+    cur_block = CreateBlock(done);
 
-  cur_block = CreateBlock(done);
-
-  CreateJalr(R_RET_ADDR, R_B, done, "Shift Left End");
+    CreateJalr(R_RET_ADDR, R_B, done, "Shift Left End");
+  }
 
   // Shift Right
-  CreateFunc("Shift Right");
-  cur_block = CreateBlock("shrFun");
+  {
+    CreateFunc("Shift Right");
+    cur_block = CreateBlock("shrFun");
 
-  CreateData("shrFun", "shr", "Address for Shift Right");
-
+    CreateData("shrFun", "shr", "Address for Shift Right");
+  }
   // Arithmetic Shift Right
-  CreateFunc("Arithmetic Shift Right");
-  cur_block = CreateBlock("ashFun");
+  {
+    CreateFunc("Arithmetic Shift Right");
+    cur_block = CreateBlock("ashFun");
 
-  CreateData("ashFun", "ashr", "Address for Arithemtic Shift Right");
+    CreateData("ashFun", "ashr", "Address for Arithemtic Shift Right");
+  }
 }
 
 std::string Emitter::mangle(std::string label, bool shorten) {
@@ -198,6 +242,9 @@ int size_in_words(llvm::Type *ty) {
     constexpr double bytes_per_word = 4.0;
     constexpr double bits_per_word = bits_per_byte * bytes_per_word;
     return ceil(ty->getIntegerBitWidth() / (bits_per_word));
+  }
+  if (ty->isPointerTy()) {
+    return 1;
   }
   fatal_error("Not Yet Implemented");
 }
@@ -247,7 +294,7 @@ int Emitter::compareEQ(llvm::Value *v1, llvm::Value *v2) {
   int sub_reg = cur_func->reg++;
   CreateAdd(l_reg, two_com, sub_reg, "", "L - R");
   std::string if_zero = mangle("z");
-  CreateBeq(sub_reg, R_ZERO, if_zero, "L == R ");
+  CreateBeq(sub_reg, R_ZERO, if_zero, "", "L == R ");
   std::string done = mangle("d");
   CreateAdd(R_ZERO, R_ZERO, dest_reg, "", "L != R");
   CreateBeq(R_ZERO, R_ZERO, done);
@@ -543,23 +590,16 @@ void Emitter::visitICmpInst(llvm::ICmpInst &I) {
 
   switch (pred) {
     case llvm::ICmpInst::Predicate::ICMP_EQ: {
-      compareEQ(lhs, rhs);
+      CreateAdd(l_reg, R_ZERO, R_P1);
+      CreateAdd(r_reg, R_ZERO, R_P2);
+      CreateLw(R_ZERO, R_B, "eq");
+      CreateJalr(R_B, R_RET_ADDR, "", "Call Equal");
     } break;
     case llvm::ICmpInst::Predicate::ICMP_NE: {
-      int neg_r = cur_func->reg++;
-      CreateNor(r_reg, r_reg, neg_r, "", "Begin !=");
-      int one_reg = get_virt_reg(one);
-      int two_com = cur_func->reg++;
-      CreateAdd(neg_r, one_reg, two_com, "", "~R + 1");
-      int sub_reg = cur_func->reg++;
-      CreateAdd(l_reg, two_com, sub_reg, "", "L - R");
-      std::string if_zero = mangle("z");
-      CreateBeq(sub_reg, R_ZERO, if_zero, "L == R ");
-      std::string done = mangle("d");
-      CreateAdd(one_reg, R_ZERO, dest_reg, "", "L != R");
-      CreateBeq(R_ZERO, R_ZERO, done);
-      CreateAdd(R_ZERO, R_ZERO, dest_reg);
-      CreateNoop(done, "End !=");
+      CreateAdd(l_reg, R_ZERO, R_P1);
+      CreateAdd(r_reg, R_ZERO, R_P2);
+      CreateLw(R_ZERO, R_B, "ne");
+      CreateJalr(R_B, R_RET_ADDR, "", "Call Not Equal");
     } break;
     case llvm::ICmpInst::Predicate::ICMP_UGT:
       CreateNoop("", "TODO Unsigned >");
@@ -631,7 +671,7 @@ void Emitter::visitCallInst(llvm::CallInst &I) {
   }
   if (I.arg_size() == 2) {
     int arg_2 = get_virt_reg(*args++);
-    CreateAdd(arg_2, R_ZERO, R_P1, "", "Move Val into Param 2");
+    CreateAdd(arg_2, R_ZERO, R_P2, "", "Move Val into Param 2");
   }
 
   int num_pops = 0;
@@ -697,9 +737,9 @@ void Emitter::debug_emit(std::ostream &os) {
   for (auto &func : funcs) {
     os << "\n\nFunction " << func->name << "\n";
     for (auto &block : func->blocks) {
-      os << "\n" << block->label << ":\n";
+      // os << "\n" << block->label << ":\n";
       for (auto &t : block->text) {
-        os << "\t" << t->emit();
+        os << t->emit();
       }
     }
     os << ";\n";
@@ -707,6 +747,15 @@ void Emitter::debug_emit(std::ostream &os) {
 
   for (auto &d : data) {
     os << d->emit();
+  }
+}
+
+void Emitter::visitFunction(llvm::Function &F) {
+  CreateFunc(F.getName().str() + "fun");
+  CreateData(F.getName().str() + "fun", F.getName().str());
+  for (auto bb = F.begin(); bb != F.end(); ++bb) {
+    cur_block = CreateBlock(bb->getName().str());
+    visit(*bb);
   }
 }
 
