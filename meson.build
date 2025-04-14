@@ -12,6 +12,7 @@ sources = [
   'src/frontend/constant_fold.cpp',
   'src/frontend/graph_gen.cpp',
   'src/middleend/codegen.cpp',
+  'src/backend/lc2k.cpp',
   'src/compiler.cpp',
   'src/main.cpp',
 ]

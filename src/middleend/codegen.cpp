@@ -1,4 +1,6 @@
 
+#include "src/middleend/codegen.hpp"
+
 #include <llvm-18/llvm/ADT/APFloat.h>
 #include <llvm-18/llvm/ADT/APInt.h>
 #include <llvm-18/llvm/Analysis/CGSCCPassManager.h>
@@ -20,10 +22,13 @@
 #include <llvm-18/llvm/IR/Verifier.h>
 #include <llvm-18/llvm/Passes/PassBuilder.h>
 #include <llvm-18/llvm/Passes/StandardInstrumentations.h>
+#include <llvm-18/llvm/Support/raw_ostream.h>
 #include <llvm-18/llvm/Transforms/InstCombine/InstCombine.h>
 #include <llvm-18/llvm/Transforms/Scalar/GVN.h>
 #include <llvm-18/llvm/Transforms/Scalar/Reassociate.h>
 #include <llvm-18/llvm/Transforms/Scalar/SimplifyCFG.h>
+#include <llvm-18/llvm/Transforms/Utils/Mem2Reg.h>
+#include <llvm-18/llvm/Transforms/Utils/PromoteMemToReg.h>
 
 #include <cstdint>
 #include <format>
@@ -38,6 +43,9 @@ namespace JCC {
 
 template <class T>
 using Unique = std::unique_ptr<T>;
+
+llvm::LLVMContext *codegen_context::llvm_context = nullptr;
+llvm::Module *codegen_context::llvm_module = nullptr;
 
 // Core functionality
 static Unique<llvm::LLVMContext> llvm_context;
@@ -329,6 +337,8 @@ llvm::Value *gen_logical(ExpressionNode *lhs, ExpressionNode *rhs, bool is_and) 
 
   llvm::Value *l = lhs->codegen();
 
+  first_block = llvm_builder->GetInsertBlock();
+
   if (l->getType()->isFloatingPointTy()) {
     l = llvm_builder->CreateFCmpUNE(l, llvm::Constant::getNullValue(l->getType()));
   }
@@ -354,6 +364,7 @@ llvm::Value *gen_logical(ExpressionNode *lhs, ExpressionNode *rhs, bool is_and) 
     r = llvm_builder->CreateICmpNE(r, llvm::Constant::getNullValue(r->getType()));
   }
   llvm_builder->CreateBr(merge_block);
+  next_block = llvm_builder->GetInsertBlock();
 
   llvm_builder->SetInsertPoint(merge_block);
 
@@ -525,6 +536,7 @@ llvm::Value *CallNode::codegen() {
   args.reserve(m_args.size());
 
   for (auto &arg : m_args) {
+    arg->m_is_lvalue = false;
     llvm::Value *arg_val = arg->codegen();
     if (!arg_val) return nullptr;
     args.push_back(arg_val);
@@ -989,8 +1001,13 @@ llvm::Value *FunctionDefinition::codegen() {
 
   m_body->codegen();
 
-  if (llvm::verifyFunction(*f)) {
-    log_error("LLVM Error Occurred... and ignored");
+  if (!llvm_builder->GetInsertBlock()->getTerminator()) {
+    llvm_builder->CreateRetVoid();
+  }
+
+  if (llvm::verifyFunction(*f, &llvm::errs())) {
+    llvm_module->print(llvm::outs(), nullptr, false, true);
+    fatal_error("LLVM Function malformed");
   }
 
   llvm_fpm->run(*f, *llvm_fam);
@@ -1002,6 +1019,9 @@ std::vector<llvm::Value *> TranslationUnit::codegen() {
   llvm_context = std::make_unique<llvm::LLVMContext>();
   llvm_builder = std::make_unique<llvm::IRBuilder<>>(*llvm_context);
   llvm_module = std::make_unique<llvm::Module>(m_filename, *llvm_context);
+
+  codegen_context::llvm_context = llvm_context.get();
+  codegen_context::llvm_module = llvm_module.get();
 
   // Optimization Passes
   llvm_fpm = std::make_unique<llvm::FunctionPassManager>();
@@ -1018,6 +1038,7 @@ std::vector<llvm::Value *> TranslationUnit::codegen() {
   llvm_fpm->addPass(llvm::ReassociatePass());
   llvm_fpm->addPass(llvm::GVNPass());
   llvm_fpm->addPass(llvm::SimplifyCFGPass());
+  llvm_fpm->addPass(llvm::PromotePass());
 
   llvm::PassBuilder llvm_pb;
   llvm_pb.registerModuleAnalyses(*llvm_mam);

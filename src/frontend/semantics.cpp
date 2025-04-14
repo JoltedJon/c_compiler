@@ -153,62 +153,15 @@ SharedDataType arithmetic_conversion(UniqueExpression &lhs, UniqueExpression &rh
   if (*lhs->m_data_type == *rhs->m_data_type) return lhs->m_data_type;
 
   // TODO Refactor this once operator< is tested
+  DataType *lhs_type = lhs->m_data_type.get();
+  DataType *rhs_type = rhs->m_data_type.get();
 
-  if (*lhs->m_data_type == *SemanticContext::base_types["double"]) {
-    if (!(*lhs->m_data_type < *rhs->m_data_type)) fatal_error("DataType < operator not implemented correctly");
-    rhs = implicit_cast(std::move(rhs), SemanticContext::base_types["double"]);
-    return lhs->m_data_type;
+  if (*rhs_type < *lhs_type) {
+    rhs = implicit_cast(std::move(rhs), lhs->m_data_type);
   }
-  if (*rhs->m_data_type == *SemanticContext::base_types["double"]) {
-    if (!(*rhs->m_data_type < *lhs->m_data_type)) fatal_error("DataType < operator not implemented correctly");
-
-    lhs = implicit_cast(std::move(lhs), SemanticContext::base_types["double"]);
-    return lhs->m_data_type;
+  else {
+    lhs = implicit_cast(std::move(lhs), rhs->m_data_type);
   }
-
-  if (*lhs->m_data_type == *SemanticContext::base_types["float"]) {
-    if (!(*lhs->m_data_type < *rhs->m_data_type)) fatal_error("DataType < operator not implemented correctly");
-
-    rhs = implicit_cast(std::move(rhs), SemanticContext::base_types["float"]);
-    return lhs->m_data_type;
-  }
-  if (*rhs->m_data_type == *SemanticContext::base_types["float"]) {
-    if (!(*rhs->m_data_type < *lhs->m_data_type)) fatal_error("DataType < operator not implemented correctly");
-
-    lhs = implicit_cast(std::move(lhs), SemanticContext::base_types["float"]);
-    return lhs->m_data_type;
-  }
-
-  if (*lhs->m_data_type == *SemanticContext::base_types["unsigned int"]) {
-    if (!(*lhs->m_data_type < *rhs->m_data_type)) fatal_error("DataType < operator not implemented correctly");
-
-    rhs = implicit_cast(std::move(lhs), SemanticContext::base_types["unsigned int"]);
-    return lhs->m_data_type;
-  }
-  if (*rhs->m_data_type == *SemanticContext::base_types["unsigned int"]) {
-    if (!(*rhs->m_data_type < *lhs->m_data_type)) fatal_error("DataType < operator not implemented correctly");
-
-    lhs = implicit_cast(std::move(lhs), SemanticContext::base_types["unsigned int"]);
-    return lhs->m_data_type;
-  }
-
-  if (*lhs->m_data_type == *SemanticContext::base_types["signed int"]) {
-    if (!(*lhs->m_data_type < *rhs->m_data_type)) {
-      std::cerr << lhs->m_data_type->to_string() << " <-> " << rhs->m_data_type->to_string() << std::endl;
-      fatal_error("DataType < operator not implemented correctly");
-    }
-
-    rhs = implicit_cast(std::move(lhs), SemanticContext::base_types["signed int"]);
-    return lhs->m_data_type;
-  }
-  if (*rhs->m_data_type == *SemanticContext::base_types["signed int"]) {
-    if (!(*rhs->m_data_type < *lhs->m_data_type)) fatal_error("DataType < operator not implemented correctly");
-
-    lhs = implicit_cast(std::move(lhs), SemanticContext::base_types["signed int"]);
-    return lhs->m_data_type;
-  }
-
-  fatal_error("Not Yet Implemented");
   return lhs->m_data_type;
 }
 
