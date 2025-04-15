@@ -1,8 +1,13 @@
 # Jon's C Compiler
 
 This is my own personal work in progress C compiler written in C++20.
-The goal of this project is to eventually emit code to LLVM. I'm building this compiler to gain a better grasp of the C language by writing the lexer and parser for it.
-I also want a better grasp of how compilers work and what makes a good design.
+Currently the compiler has the capability of emitting to LLVM, output the AST, and also has an unfinished LC2K output.
+
+The LLVM IR that is created goes through a couple basic optimizations to enable for better output.
+
+There are many things that are not yet finished in this project, for instance structs/unions, and function pointers are not yet implemented. Arrays currently have no way to be outputted to LC2K yet. LC2K's output currently operates under the assumption of unlimited virtual registers, so register allocation needs to be finished, along with pushing Callee and Caller saved registers onto the stack.
+
+No more work will be put onto this project unless if some interest is expressed for it to be completed.
 
 # Setup
 
